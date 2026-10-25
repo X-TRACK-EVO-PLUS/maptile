@@ -19,6 +19,9 @@ option(MAPTILE_WITH_ZLIB "Read gzip-compressed tiles (needs zlib)" ON)
 option(MAPTILE_WITH_SQLITE "Read MBTiles files (needs sqlite3)" ON)
 option(MAPTILE_BUILD_SVG "Build the SVG backend and the maptile-svg tool"
        ${MAPTILE_TOP_LEVEL})
+option(MAPTILE_BUILD_LVGL
+       "Build the LVGL backend (needs an lvgl target from the parent project)"
+       OFF)
 option(MAPTILE_BUILD_TESTS "Build the unit tests" ${MAPTILE_TOP_LEVEL})
 option(MAPTILE_WERROR "Treat warnings as errors" OFF)
 
@@ -67,6 +70,13 @@ if(MAPTILE_BUILD_SVG)
   target_link_libraries(maptile_svg PUBLIC maptile)
   add_executable(maptile-svg tools/maptile_svg.cpp)
   target_link_libraries(maptile-svg PRIVATE maptile_svg)
+endif()
+
+if(MAPTILE_BUILD_LVGL)
+  add_library(maptile_lvgl STATIC backends/lvgl/lvgl_canvas.cpp)
+  target_include_directories(maptile_lvgl
+                             PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/backends/lvgl)
+  target_link_libraries(maptile_lvgl PUBLIC maptile lvgl)
 endif()
 
 if(MAPTILE_BUILD_TESTS)

@@ -1,0 +1,91 @@
+{
+    "name": "Light",
+    "version": 1,
+    "background": { "color": "#F5F0EB" },
+    "render_order": ["land","water_polygons","water_lines","sites","buildings","streets","bridges"],
+    "label_order": ["street_labels","place_labels","pois"],
+    "layers": {
+        "water_polygons": { "fill": { "color": "#B6D6E8" } },
+        "water_lines": { "stroke": { "color": "#B6D6E8", "width": 1.5 } },
+        "buildings": { "fill": { "color": "#E0D8D0" } },
+        "sites": { "fill": { "color": "#EDE8E3", "opacity": 0.5 } },
+        "streets": {
+            "stroke": {
+                "default": { "color": "#FFFFFF", "width": 1.0 },
+                "match": { "key": "kind", "values": {
+                    "motorway": { "color": "#E8946A", "width": 3.0 },
+                    "trunk": { "color": "#E8946A", "width": 3.0 },
+                    "primary": { "color": "#F0C078", "width": 2.5 },
+                    "secondary": { "color": "#F5F0EB", "width": 2.0 },
+                    "tertiary": { "color": "#F5F0EB", "width": 2.0 },
+                    "residential": { "color": "#FAFAFA", "width": 1.2 },
+                    "living_street": { "color": "#FAFAFA", "width": 1.2 },
+                    "service": { "color": "#F0EDE8", "width": 0.8 },
+                    "path": { "color": "#F0EDE8", "width": 0.8 },
+                    "footway": { "color": "#F0EDE8", "width": 0.8 },
+                    "cycleway": { "color": "#F0EDE8", "width": 0.8 }
+                }}
+            }
+        },
+        "bridges": {
+            "stroke": {
+                "default": { "color": "#FFFFFF", "width": 1.5 },
+                "match": { "key": "kind", "values": {
+                    "motorway": { "color": "#FFA35C", "width": 3.0 },
+                    "primary": { "color": "#FFD88A", "width": 2.5 }
+                }}
+            }
+        },
+        "land": {
+            "fill": {
+                "default": { "opacity": 0 },
+                "match": { "key": "kind", "values": {
+                    "park": { "color": "#CDEBB0" },
+                    "garden": { "color": "#CDEBB0" },
+                    "grass": { "color": "#CDEBB0" },
+                    "forest": { "color": "#CDEBB0" },
+                    "hospital": { "color": "#F3D3D3" },
+                    "school": { "color": "#EAD6C8" },
+                    "university": { "color": "#EAD6C8" },
+                    "college": { "color": "#EAD6C8" },
+                    "residential": { "color": "#E0DFDF" },
+                    "commercial": { "color": "#F2DAD9" },
+                    "retail": { "color": "#F2DAD9" },
+                    "industrial": { "color": "#EBDCE8" }
+                }}
+            }
+        },
+        "pois": {
+            "show": { "min_zoom": 14 },
+            "label": {
+                "color": "#333333",
+                "icons": { "key": "kind", "values": {
+                    "restaurant": "\uF2E7",
+                    "fast_food": "\uF2E7",
+                    "cafe": "\uF0F4",
+                    "hospital": "\uF0F8",
+                    "clinic": "\uF0F8",
+                    "school": "\uF549",
+                    "university": "\uF19D",
+                    "hotel": "\uF594",
+                    "bank": "\uF19C",
+                    "fuel": "\uF52F",
+                    "bus_stop": "\uF207",
+                    "station": "\uF238",
+                    "place_of_worship": "\uF51D",
+                    "park": "\uF1BB",
+                    "monument": "\uF5A6",
+                    "supermarket": "\uF54E",
+                    "pharmacy": "\uF0F8",
+                    "default": "\uF3C5"
+                }}
+            }
+        },
+        "street_labels": {
+            "label": { "color": "#555555" }
+        },
+        "place_labels": {
+            "label": { "color": "#333333" }
+        }
+    }
+}

@@ -4,7 +4,7 @@
 using namespace MapTile;
 
 // Routing data path relative to project root (ctest WORKING_DIRECTORY is project root)
-static const char* ROUTING_PATH = "example/resource/routing/%d/%d/%d.rng";
+static const char* ROUTING_PATH = "tests/data/routing/%d/%d/%d.rng";
 
 TEST_CASE("Router::findRoute with real data")
 {

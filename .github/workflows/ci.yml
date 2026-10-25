@@ -1,11 +1,9 @@
 name: CI
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 jobs:
   format:
     name: Code Format Check
@@ -13,69 +11,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install clang-format
-        run: sudo apt-get install -y clang-format
+        run: sudo apt-get install -y clang-format-14
       - name: Check formatting
         run: bash tools/code_format.sh --check
-
-  build:
-    name: Build (with Example)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libprotobuf-dev protobuf-compiler \
-            libsdl2-dev \
-            libsqlite3-dev \
-            libpng-dev \
-            zlib1g-dev
-      - name: Configure
-        run: cmake -B build -DXMAP_BUILD_EXAMPLE=ON -DXMAP_WERROR=ON
-      - name: Build
-        run: cmake --build build -j$(nproc)
-
   test:
-    name: Test + Coverage
+    name: Build and test
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libprotobuf-dev protobuf-compiler \
-            libsqlite3-dev \
-            zlib1g-dev \
-            lcov
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build zlib1g-dev libsqlite3-dev
       - name: Configure
-        run: >
-          cmake -B build
-          -DXMAP_BUILD_TESTS=ON
-          -DXMAP_BUILD_EXAMPLE=OFF
-          -DXMAP_WERROR=ON
-          -DCMAKE_C_FLAGS="--coverage"
-          -DCMAKE_CXX_FLAGS="--coverage"
+        run: cmake -S . -B build -G Ninja -DMAPTILE_WERROR=ON
       - name: Build
-        run: cmake --build build -j$(nproc)
-      - name: Run tests
+        run: cmake --build build
+      - name: Test
         run: ctest --test-dir build --output-on-failure
-      - name: Collect coverage
-        run: |
-          lcov --capture --directory build/maptile --output-file coverage.info \
-            --include '*/maptile/src/*' --include '*/maptile/include/*' \
-            --ignore-errors mismatch
-          lcov --remove coverage.info '*.pb.*' --output-file coverage.info \
-            --ignore-errors unused
-          lcov --summary coverage.info
-      - name: Upload coverage
-        if: github.event_name == 'push'
-        uses: codecov/codecov-action@v4
-        with:
-          file: coverage.info
-          fail_ci_if_error: false
+  test-minimal:
+    name: Build without zlib and sqlite3
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DMAPTILE_WERROR=ON -DMAPTILE_WITH_ZLIB=OFF -DMAPTILE_WITH_SQLITE=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

@@ -1,0 +1,586 @@
+{
+ "schema": 2,
+ "name": "ride-light",
+ "background": "$land",
+ "palette": {
+  "land": "#e6e4dd",
+  "green": "#cdd7c0",
+  "site": "#e0dcd4",
+  "plaza": "#eeece7",
+  "water": "#a8c2d0",
+  "building": "#d6d2ca",
+  "casing": "#b8b4ab",
+  "casing-major": "#8b877e",
+  "road": "#ffffff",
+  "road-major": "#fffdf6",
+  "minor": "#fbfaf7",
+  "service": "#f4f2ee",
+  "cycle": "#5f8f55",
+  "rail": "#8b877e",
+  "label": "#4a4843",
+  "label-major": "#1c1b19",
+  "label-water": "#3f6f88",
+  "label-place": "#6d6b65",
+  "halo": "#f5f4f0e6"
+ },
+ "layers": [
+  {
+   "id": "green",
+   "source": "land",
+   "type": "fill",
+   "filter": {
+    "kind": [
+     "park",
+     "forest",
+     "grass",
+     "garden",
+     "meadow",
+     "recreation_ground",
+     "playground",
+     "scrub",
+     "grassland",
+     "village_green",
+     "wood",
+     "cemetery",
+     "allotments",
+     "orchard"
+    ]
+   },
+   "color": "$green"
+  },
+  {
+   "id": "site",
+   "source": "sites",
+   "type": "fill",
+   "filter": {
+    "kind": [
+     "university",
+     "school",
+     "hospital",
+     "college"
+    ]
+   },
+   "color": "$site"
+  },
+  {
+   "id": "plaza",
+   "source": "street_polygons",
+   "type": "fill",
+   "color": "$plaza"
+  },
+  {
+   "id": "water",
+   "source": "water_polygons",
+   "type": "fill",
+   "color": "$water"
+  },
+  {
+   "id": "river",
+   "source": "water_lines",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "river",
+     "canal"
+    ]
+   },
+   "color": "$water",
+   "width": [
+    [
+     9,
+     0.8
+    ],
+    [
+     16,
+     3.2
+    ],
+    [
+     18,
+     8
+    ]
+   ]
+  },
+  {
+   "id": "stream",
+   "source": "water_lines",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "stream",
+     "ditch",
+     "drain"
+    ]
+   },
+   "color": "$water",
+   "width": [
+    [
+     13,
+     0.4
+    ],
+    [
+     16,
+     1.3
+    ],
+    [
+     18,
+     3
+    ]
+   ],
+   "min_zoom": 13
+  },
+  {
+   "id": "building",
+   "source": "buildings",
+   "type": "fill",
+   "color": "$building",
+   "min_zoom": 14.5
+  },
+  {
+   "id": "minor-casing",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "residential",
+     "unclassified",
+     "living_street",
+     "pedestrian"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$casing",
+   "width": [
+    [
+     13,
+     0.5
+    ],
+    [
+     16,
+     3.6
+    ],
+    [
+     18,
+     8
+    ]
+   ],
+   "min_zoom": 13
+  },
+  {
+   "id": "secondary-casing",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "secondary",
+     "tertiary",
+     "secondary_link",
+     "tertiary_link"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$casing",
+   "width": [
+    [
+     11,
+     0.9
+    ],
+    [
+     16,
+     6.6
+    ],
+    [
+     18,
+     13
+    ]
+   ],
+   "min_zoom": 11
+  },
+  {
+   "id": "primary-casing",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "primary",
+     "primary_link"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$casing-major",
+   "width": [
+    [
+     10,
+     1.2
+    ],
+    [
+     16,
+     8.4
+    ],
+    [
+     18,
+     16
+    ]
+   ],
+   "min_zoom": 10
+  },
+  {
+   "id": "major-casing",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "motorway",
+     "trunk",
+     "motorway_link",
+     "trunk_link"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$casing-major",
+   "width": [
+    [
+     9,
+     1.6
+    ],
+    [
+     16,
+     10
+    ],
+    [
+     18,
+     19
+    ]
+   ],
+   "min_zoom": 9
+  },
+  {
+   "id": "service",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "service"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$service",
+   "width": [
+    [
+     14,
+     0.5
+    ],
+    [
+     16,
+     1.6
+    ],
+    [
+     18,
+     4
+    ]
+   ],
+   "min_zoom": 14
+  },
+  {
+   "id": "cycleway",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "cycleway"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$cycle",
+   "width": [
+    [
+     14,
+     0.6
+    ],
+    [
+     16,
+     1.7
+    ],
+    [
+     18,
+     3.4
+    ]
+   ],
+   "min_zoom": 14,
+   "dash": [
+    3,
+    2
+   ]
+  },
+  {
+   "id": "minor",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "residential",
+     "unclassified",
+     "living_street",
+     "pedestrian"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$minor",
+   "width": [
+    [
+     13,
+     0.3
+    ],
+    [
+     16,
+     2.3
+    ],
+    [
+     18,
+     5.5
+    ]
+   ],
+   "min_zoom": 13
+  },
+  {
+   "id": "secondary",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "secondary",
+     "tertiary",
+     "secondary_link",
+     "tertiary_link"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$road",
+   "width": [
+    [
+     11,
+     0.6
+    ],
+    [
+     16,
+     4.9
+    ],
+    [
+     18,
+     10.5
+    ]
+   ],
+   "min_zoom": 11
+  },
+  {
+   "id": "primary",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "primary",
+     "primary_link"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$road-major",
+   "width": [
+    [
+     10,
+     0.8
+    ],
+    [
+     16,
+     6.5
+    ],
+    [
+     18,
+     13.5
+    ]
+   ],
+   "min_zoom": 10
+  },
+  {
+   "id": "major",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "motorway",
+     "trunk",
+     "motorway_link",
+     "trunk_link"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$road-major",
+   "width": [
+    [
+     9,
+     1.1
+    ],
+    [
+     16,
+     8
+    ],
+    [
+     18,
+     16.5
+    ]
+   ],
+   "min_zoom": 9
+  },
+  {
+   "id": "rail",
+   "source": "streets",
+   "type": "line",
+   "filter": {
+    "kind": [
+     "rail",
+     "light_rail"
+    ],
+    "!tunnel": [
+     "true"
+    ]
+   },
+   "color": "$rail",
+   "width": [
+    [
+     12,
+     0.5
+    ],
+    [
+     16,
+     1.2
+    ]
+   ],
+   "dash": [
+    4,
+    3
+   ],
+   "min_zoom": 12
+  }
+ ],
+ "labels": [
+  {
+   "id": "road-major",
+   "source": "street_labels",
+   "filter": {
+    "kind": [
+     "motorway",
+     "trunk",
+     "primary"
+    ]
+   },
+   "color": "$label-major",
+   "halo": "$halo",
+   "size": [
+    [
+     12,
+     9
+    ],
+    [
+     16,
+     11.5
+    ]
+   ],
+   "weight": 700,
+   "min_zoom": 12,
+   "repeat": 260
+  },
+  {
+   "id": "road",
+   "source": "street_labels",
+   "filter": {
+    "kind": [
+     "secondary",
+     "tertiary",
+     "residential",
+     "unclassified",
+     "living_street"
+    ]
+   },
+   "color": "$label",
+   "halo": "$halo",
+   "size": [
+    [
+     14,
+     9
+    ],
+    [
+     17,
+     11
+    ]
+   ],
+   "weight": 500,
+   "min_zoom": 14,
+   "repeat": 200
+  },
+  {
+   "id": "water",
+   "source": "water_lines_labels",
+   "color": "$label-water",
+   "halo": "$halo",
+   "size": 10.5,
+   "weight": 500,
+   "min_zoom": 13,
+   "repeat": 300
+  },
+  {
+   "id": "water-area",
+   "source": "water_polygons_labels",
+   "color": "$label-water",
+   "halo": "$halo",
+   "size": 11,
+   "weight": 500,
+   "min_zoom": 12
+  },
+  {
+   "id": "place",
+   "source": "place_labels",
+   "filter": {
+    "kind": [
+     "suburb",
+     "quarter",
+     "neighbourhood",
+     "village",
+     "town",
+     "city"
+    ]
+   },
+   "color": "$label-place",
+   "halo": "$halo",
+   "size": [
+    [
+     10,
+     10
+    ],
+    [
+     16,
+     11
+    ]
+   ],
+   "weight": 500,
+   "min_zoom": 10
+  }
+ ]
+}

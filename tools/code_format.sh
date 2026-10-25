@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Auto format script for X-MAP project
-# Formats C/C++ files in maptile/ and example/, and CMake files
+# Formats the C/C++ sources, and CMake files
 #
 
 set -e
@@ -40,8 +40,10 @@ fi
 
 # Directories to format (C/C++ files)
 FORMAT_DIRS=(
-    "$PROJECT_ROOT/maptile"
-    "$PROJECT_ROOT/example"
+    "$PROJECT_ROOT/include"
+    "$PROJECT_ROOT/src"
+    "$PROJECT_ROOT/backends"
+    "$PROJECT_ROOT/tools"
     "$PROJECT_ROOT/tests"
 )
 
@@ -55,7 +57,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo "========================================="
-echo "X-MAP Code Formatter"
+echo "maptile Code Formatter"
 echo "========================================="
 echo ""
 

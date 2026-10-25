@@ -1,49 +1,75 @@
 cmake_minimum_required(VERSION 3.14)
-project(X-MAP)
+project(
+  maptile
+  VERSION 0.1.0
+  LANGUAGES C CXX)
 
-set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 99)
 
-option(ENABLE_DEBUG "Enable debug build" ON)
-option(XMAP_BUILD_EXAMPLE "Build example application" ON)
-option(XMAP_BUILD_TESTS "Build unit tests" OFF)
-option(XMAP_WERROR "Treat warnings as errors" OFF)
-
-if(ENABLE_DEBUG)
-  message(STATUS "Build type: Debug")
-  add_definitions(-DDEBUG)
-  set(CMAKE_BUILD_TYPE "Debug")
+# Only the core library is built when maptile is used as a subproject
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  set(MAPTILE_TOP_LEVEL ON)
 else()
-  message(STATUS "Build type: Release")
-  set(CMAKE_BUILD_TYPE "Release")
+  set(MAPTILE_TOP_LEVEL OFF)
 endif()
 
-set(EXTERNAL_SOURCE_DIR ${PROJECT_SOURCE_DIR}/external)
+option(MAPTILE_WITH_ZLIB "Read gzip-compressed tiles (needs zlib)" ON)
+option(MAPTILE_WITH_SQLITE "Read MBTiles files (needs sqlite3)" ON)
+option(MAPTILE_BUILD_SVG "Build the SVG backend and the maptile-svg tool"
+       ${MAPTILE_TOP_LEVEL})
+option(MAPTILE_BUILD_TESTS "Build the unit tests" ${MAPTILE_TOP_LEVEL})
+option(MAPTILE_WERROR "Treat warnings as errors" OFF)
 
-# Protobuf
-find_package(Protobuf REQUIRED)
+add_library(
+  maptile STATIC
+  src/camera.cpp
+  src/geom.cpp
+  src/json.cpp
+  src/mvt.cpp
+  src/renderer.cpp
+  src/style.cpp
+  src/tile_source.cpp
+  src/gcj02.c
+  src/routing_graph.cpp
+  src/router.cpp)
+add_library(maptile::maptile ALIAS maptile)
+target_include_directories(
+  maptile PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_compile_options(maptile PRIVATE -Wall -Wextra
+                                       $<$<BOOL:${MAPTILE_WERROR}>:-Werror>)
+set_target_properties(maptile PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# cJSON
-option(ENABLE_CJSON_TEST "Enable cJSON tests" OFF)
-option(BUILD_SHARED_LIBS "Build shared libs" OFF)
-add_subdirectory(${EXTERNAL_SOURCE_DIR}/cjson ${CMAKE_BINARY_DIR}/build_cjson)
-
-# Core library
-add_subdirectory(maptile)
-
-# Backends (only needed for example)
-if(XMAP_BUILD_EXAMPLE)
-  add_subdirectory(maptile/backend/lvgl)
-  add_subdirectory(maptile/backend/plutovg)
+if(MAPTILE_WITH_ZLIB)
+  find_package(ZLIB)
+  if(ZLIB_FOUND)
+    target_link_libraries(maptile PRIVATE ZLIB::ZLIB)
+    target_compile_definitions(maptile PRIVATE MAPTILE_WITH_ZLIB=1)
+  else()
+    message(STATUS "maptile: zlib not found, gzip tiles are not supported")
+  endif()
+endif()
+if(MAPTILE_WITH_SQLITE)
+  find_package(SQLite3)
+  if(SQLite3_FOUND)
+    target_link_libraries(maptile PRIVATE SQLite::SQLite3)
+    target_compile_definitions(maptile PRIVATE MAPTILE_WITH_SQLITE=1)
+  else()
+    message(STATUS "maptile: sqlite3 not found, MBTiles are not supported")
+  endif()
 endif()
 
-# Example
-if(XMAP_BUILD_EXAMPLE)
-  add_subdirectory(example)
+if(MAPTILE_BUILD_SVG)
+  add_library(maptile_svg STATIC backends/svg/svg_canvas.cpp)
+  target_include_directories(maptile_svg
+                             PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/backends/svg)
+  target_link_libraries(maptile_svg PUBLIC maptile)
+  add_executable(maptile-svg tools/maptile_svg.cpp)
+  target_link_libraries(maptile-svg PRIVATE maptile_svg)
 endif()
 
-# Tests
-if(XMAP_BUILD_TESTS)
+if(MAPTILE_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
 endif()

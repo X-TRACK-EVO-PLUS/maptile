@@ -53,6 +53,14 @@ static float edgeCost(const RngEdge& e)
     return base;
 }
 
+// --- Distance between two points, metres ---
+static double metresBetween(double lon1, double lat1, double lon2, double lat2)
+{
+    double dy = (lat2 - lat1) * 110574.0;
+    double dx = (lon2 - lon1) * 111320.0 * cos((lat1 + lat2) * 0.5 * M_PI / 180.0);
+    return sqrt(dx * dx + dy * dy);
+}
+
 // --- Heuristic ---
 
 static float heuristic(int32_t lon1, int32_t lat1, int32_t lon2, int32_t lat2)
@@ -130,7 +138,7 @@ RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
     result.distance_m = 0;
     result.elevationGain = 0;
     result.found = false;
-
+    result.status = RouteStatus::NotConnected;
     // Find start and end tiles + nodes
     int startTX, startTY, endTX, endTY;
     _graph->lonLatToTile(from.lon, from.lat, startTX, startTY);
@@ -138,9 +146,10 @@ RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
 
     TileBlock* startBlock = _graph->getTile(startTX, startTY);
     TileBlock* endBlock = _graph->getTile(endTX, endTY);
-    if (!startBlock || !endBlock)
+    if (!startBlock || !endBlock) {
+        result.status = RouteStatus::NoData;
         return result;
-
+    }
     int32_t fromLon = (int32_t)(from.lon * 1e7);
     int32_t fromLat = (int32_t)(from.lat * 1e7);
     int32_t toLon = (int32_t)(to.lon * 1e7);
@@ -149,9 +158,25 @@ RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
     uint32_t startNode = _graph->findNearestNode(startBlock, fromLon, fromLat);
     uint32_t endNode = _graph->findNearestNode(endBlock, toLon, toLat);
 
-    if (startNode == UINT32_MAX || endNode == UINT32_MAX)
+    if (startNode == UINT32_MAX || endNode == UINT32_MAX) {
+        result.status = startNode == UINT32_MAX ? RouteStatus::NoNodeNearStart : RouteStatus::NoNodeNearEnd;
         return result;
+    }
 
+    result.startSnapM = metresBetween(from.lon, from.lat, startBlock->nodes[startNode].lon * 1e-7,
+        startBlock->nodes[startNode].lat * 1e-7);
+    result.endSnapM = metresBetween(to.lon, to.lat, endBlock->nodes[endNode].lon * 1e-7,
+        endBlock->nodes[endNode].lat * 1e-7);
+    if (_snapLimitM > 0) {
+        if (result.startSnapM > _snapLimitM) {
+            result.status = RouteStatus::NoNodeNearStart;
+            return result;
+        }
+        if (result.endSnapM > _snapLimitM) {
+            result.status = RouteStatus::NoNodeNearEnd;
+            return result;
+        }
+    }
     GlobalNodeId startId = { startTX, startTY, startNode };
     GlobalNodeId endId = { endTX, endTY, endNode };
 
@@ -170,8 +195,7 @@ RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
     openSet.push({ h, startId });
 
     int iterations = 0;
-    const int MAX_ITERATIONS = 100000;
-
+    const int MAX_ITERATIONS = _maxIterations;
     while (!openSet.empty() && iterations < MAX_ITERATIONS) {
         iterations++;
         OpenEntry cur = openSet.top();
@@ -254,9 +278,12 @@ RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
         }
     }
 
-    if (!result.found)
+    result.iterations = iterations;
+    if (!result.found) {
+        result.status = openSet.empty() ? RouteStatus::NotConnected : RouteStatus::TooLong;
         return result;
-
+    }
+    result.status = RouteStatus::Found;
     // Reconstruct path
     std::vector<GlobalNodeId> pathIds;
     GlobalNodeId cur = endId;

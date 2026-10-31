@@ -79,3 +79,57 @@ TEST_CASE("Router::findRoute with no data")
     RouteResult result = router.findRoute(from, to);
     CHECK(result.found == false);
 }
+
+TEST_CASE("Router::findRoute says why it found nothing")
+{
+    Router router;
+    router.setDataPath(ROUTING_PATH);
+    router.setCacheSize(8);
+
+    SUBCASE("a route reports Found and how far the ends are from the roads")
+    {
+        RouteResult r = router.findRoute({ 116.373733, 39.928243 }, { 116.39688, 39.91385 });
+        REQUIRE(r.found);
+        CHECK(r.status == RouteStatus::Found);
+        CHECK(r.startSnapM < 100);
+        CHECK(r.endSnapM < 100);
+        CHECK(r.iterations > 0);
+    }
+
+    SUBCASE("outside the routing tiles is NoData")
+    {
+        RouteResult r = router.findRoute({ 116.4, 39.9 }, { 120.0, 30.0 });
+        CHECK_FALSE(r.found);
+        CHECK(r.status == RouteStatus::NoData);
+    }
+
+    SUBCASE("a point far from any road is refused when a snap limit is set")
+    {
+        // the lake of Beihai: the nearest road node is a few hundred metres away
+        const RoutePoint lake = { 116.3835, 39.9265 };
+        RouteResult free = router.findRoute({ 116.373733, 39.928243 }, lake);
+        CHECK(free.endSnapM > 40);
+        router.setSnapLimit(free.endSnapM - 20);
+        RouteResult r = router.findRoute({ 116.373733, 39.928243 }, lake);
+        CHECK_FALSE(r.found);
+        CHECK(r.status == RouteStatus::NoNodeNearEnd);
+        RouteResult back = router.findRoute(lake, { 116.373733, 39.928243 });
+        CHECK(back.status == RouteStatus::NoNodeNearStart);
+    }
+
+    SUBCASE("hitting the iteration limit is TooLong, not NotConnected")
+    {
+        router.setMaxIterations(5);
+        RouteResult r = router.findRoute({ 116.373733, 39.928243 }, { 116.39688, 39.91385 });
+        CHECK_FALSE(r.found);
+        CHECK(r.status == RouteStatus::TooLong);
+    }
+}
+
+TEST_CASE("Router::findRoute with no data reports NoData")
+{
+    Router router;
+    router.setDataPath("/nonexistent/%d/%d/%d.rng");
+    RouteResult r = router.findRoute({ 116.4, 39.9 }, { 116.5, 39.8 });
+    CHECK(r.status == RouteStatus::NoData);
+}

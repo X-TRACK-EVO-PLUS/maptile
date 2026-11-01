@@ -132,6 +132,10 @@ void Router::setCacheSize(int maxBlocks)
     _graph->setCacheSize(maxBlocks);
 }
 
+void Router::setCacheBytes(size_t bytes)
+{
+    _graph->setCacheBytes(bytes);
+}
 RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
 {
     RouteResult result;
@@ -155,8 +159,8 @@ RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
     int32_t toLon = (int32_t)(to.lon * 1e7);
     int32_t toLat = (int32_t)(to.lat * 1e7);
 
-    uint32_t startNode = _graph->findNearestNode(startBlock, fromLon, fromLat);
-    uint32_t endNode = _graph->findNearestNode(endBlock, toLon, toLat);
+    uint32_t startNode = _graph->findNearestNode(startBlock, fromLon, fromLat, true);
+    uint32_t endNode = _graph->findNearestNode(endBlock, toLon, toLat, true);
 
     if (startNode == UINT32_MAX || endNode == UINT32_MAX) {
         result.status = startNode == UINT32_MAX ? RouteStatus::NoNodeNearStart : RouteStatus::NoNodeNearEnd;

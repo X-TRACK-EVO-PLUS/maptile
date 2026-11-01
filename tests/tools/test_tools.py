@@ -40,6 +40,12 @@ try:
 except ImportError:
     HAVE_OSMIUM = False
 try:
+    import numpy  # noqa: F401
+    import scipy  # noqa: F401
+    HAVE_NUMPY = True
+except ImportError:
+    HAVE_NUMPY = False
+try:
     import pypinyin  # noqa: F401
     HAVE_PINYIN = True
 except ImportError:
@@ -646,12 +652,52 @@ class ExtractRouting(Tmp):
         shutil.rmtree(out)
         r, out = self.extract("--min-component", "4", src=src)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("dropped 1", r.stdout)
+        self.assertIn("dropped 2", r.stdout)  # the island, and the end of the oneway street that leads to it
         without = self.tiles(out)
         self.assertLess(without["nodes"], with_island["nodes"])
         shutil.rmtree(out)
         r, _ = self.extract("--min-component", "100", src=src)  # nothing is that big
         self.assertNotEqual(r.returncode, 0)
+
+    def test_every_junction_that_is_kept_can_be_left_and_entered(self):
+        # the end of a oneway street can be entered but not left: a route that starts there has nowhere to go
+        r, out = self.extract("--min-component", "3")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Islands:", r.stdout)
+        path = os.path.join(out, "10", "843", "388.rng")
+        raw = open(path, "rb").read()
+        nodes, edges = struct.unpack_from("<II", raw, 8)
+        has_out = [struct.unpack_from("<iiI", raw, 36 + 12 * i)[2] != 0xFFFFFFFF for i in range(nodes)]
+        has_in = [False] * nodes
+        for k in range(edges):
+            has_in[struct.unpack_from("<I", raw, 36 + 12 * nodes + 12 * k)[0]] = True
+        self.assertTrue(all(has_out) and all(has_in), (has_out, has_in))
+        full = self.tiles(self.extract("--min-component", "0")[1])
+        self.assertLess(nodes, full["nodes"])  # junction 5, the end of the oneway street, is gone
+
+    def test_a_network_that_only_a_motorway_leads_to_is_dropped(self):
+        # a bicycle cannot use the motorway, so the three junctions beyond it cannot be reached by bicycle
+        extra = '''  <node id="40" lat="39.9100" lon="116.4100"/>
+  <node id="41" lat="39.9200" lon="116.4100"/>
+  <node id="42" lat="39.9300" lon="116.4100"/>
+  <way id="50"><nd ref="3"/><nd ref="40"/><tag k="highway" v="motorway"/></way>
+  <way id="51"><nd ref="40"/><nd ref="41"/><tag k="highway" v="residential"/></way>
+  <way id="52"><nd ref="41"/><nd ref="42"/><tag k="highway" v="residential"/></way>
+</osm>'''
+        plain = self.path("plain.osm")
+        open(plain, "w").write(OSM_XML)
+        src = self.path("motorway.osm")
+        open(src, "w").write(OSM_XML.replace("</osm>", extra))
+        r, out = self.extract("--min-component", "4", src=plain)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        alone = self.tiles(out)["nodes"]
+        shutil.rmtree(out)
+        r, out = self.extract("--min-component", "4", src=src)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.tiles(out)["nodes"], alone)
+        shutil.rmtree(out)
+        r, out = self.extract("--min-component", "0", src=src)  # without the pruning they are all there
+        self.assertGreater(self.tiles(out)["nodes"], alone)
 
     def test_a_bad_box_or_no_roads_stops_it(self):
         r, _ = self.extract("--bbox", "1,2,3")
@@ -678,6 +724,37 @@ class ExtractRouting(Tmp):
         got = {os.path.relpath(os.path.join(d, f), b): open(os.path.join(d, f), "rb").read() for d, _, fs in os.walk(b) for f in fs}
         self.assertEqual(got, xml)
 
+
+    @unittest.skipUnless(HAVE_OSMIUM and HAVE_NUMPY, "needs pyosmium, numpy and scipy")
+    def test_the_large_extractor_gives_the_same_files(self):
+        """extract_routing_large.py against extract_routing.py: roads that cross tiles, oneways in both directions, a loop, an island."""
+        import osmium
+        pbf = self.path("large.osm.pbf")
+        w = osmium.SimpleWriter(pbf)
+        nodes = ((1, 39.9, 116.39), (2, 39.9, 116.395), (3, 39.9, 116.4), (4, 39.905, 116.395), (5, 39.91, 116.395),
+                 (6, 39.9, 116.5), (7, 39.9, 116.8), (8, 39.9, 116.85), (9, 39.92, 116.85),  # 7 to 9 is in the next tile to the east
+                 (20, 39.5, 116.4), (21, 39.51, 116.4), (22, 39.52, 116.4))  # the island is far from the rest
+        for nid, lat, lon in nodes:
+            w.add_node(osmium.osm.mutable.Node(id=nid, location=(lon, lat)))
+        for wid, refs, tags in ((10, [1, 2, 3], {"highway": "residential"}), (11, [2, 4, 5], {"highway": "tertiary", "oneway": "yes"}),
+                                (12, [3, 6, 7], {"highway": "cycleway"}), (13, [7, 8, 9, 7], {"highway": "secondary", "bridge": "yes"}),
+                                (14, [5, 4], {"highway": "residential", "oneway": "-1"}), (15, [6, 3], {"highway": "track", "surface": "gravel"}),
+                                (16, [20, 21, 22], {"highway": "residential"}), (17, [1, 20], {"highway": "service", "service": "parking_aisle"})):
+            w.add_way(osmium.osm.mutable.Way(id=wid, nodes=refs, tags=tags))
+        w.close()
+        for extra in (("--min-component", "0"), ("--min-component", "3"), ("--min-component", "0", "--bbox", "116.3,39.85,116.9,39.95")):
+            out_a, out_b = self.path("a"), self.path("b")
+            for d in (out_a, out_b, out_b + ".work"):
+                shutil.rmtree(d, ignore_errors=True)
+            a = run(os.path.join(TOOLS, "extract_routing.py"), pbf, out_a, "--zoom", "10", *extra, expect=None)
+            b = run(os.path.join(TOOLS, "extract_routing_large.py"), pbf, out_b, "--zoom", "10", *extra, expect=None)
+            self.assertEqual(a.returncode, 0, a.stdout + a.stderr)
+            self.assertEqual(b.returncode, 0, b.stdout + b.stderr)
+            files_a = {os.path.relpath(os.path.join(d, f), out_a): open(os.path.join(d, f), "rb").read() for d, _, fs in os.walk(out_a) for f in fs}
+            files_b = {os.path.relpath(os.path.join(d, f), out_b): open(os.path.join(d, f), "rb").read() for d, _, fs in os.walk(out_b) for f in fs}
+            self.assertGreaterEqual(len(files_a), 2, extra)
+            self.assertEqual(files_b, files_a, extra)
+            self.assertFalse(os.path.exists(out_b + ".work"))  # it cleans up after itself
 
 if __name__ == "__main__":
     unittest.main()

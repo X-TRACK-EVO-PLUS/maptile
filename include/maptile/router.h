@@ -5,6 +5,7 @@
 #ifndef MAPTILE_ROUTER_H
 #define MAPTILE_ROUTER_H
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -49,6 +50,8 @@ public:
     /// Set LRU cache size (number of tile blocks)
     void setCacheSize(int maxBlocks);
 
+    /// Upper bound on the memory of the cached tiles (see RoutingGraph::setCacheBytes)
+    void setCacheBytes(size_t bytes);
     /// Longest distance from a start or end point to the road node it snaps to; 0 means no limit
     void setSnapLimit(double metres) { _snapLimitM = metres; }
 

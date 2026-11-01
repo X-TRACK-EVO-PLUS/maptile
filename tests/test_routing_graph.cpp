@@ -145,7 +145,41 @@ TEST_CASE("RoutingGraph::findNearestNode")
     nearest = graph.findNearestNode(block, 1164020000, 399020000);
     CHECK(nearest == 2);
 
+    // Node 4 has no edge leaving it (a copy of a node across a border looks like that): it is the nearest to itself,
+    // but a route cannot start there
+    CHECK(graph.findNearestNode(block, 1164040000, 399040000) == 4);
+    CHECK(graph.findNearestNode(block, 1164040000, 399040000, true) == 3);
+
     remove(path);
+}
+
+TEST_CASE("RoutingGraph::setCacheBytes keeps the cache under its limit but not below two tiles")
+{
+    // each test tile is 5 nodes and 4 edges: 108 bytes
+    const int tiles[] = { 1, 2, 3, 4, 5, 6 };
+    for (int t : tiles) {
+        char path[64];
+        snprintf(path, sizeof(path), "/tmp/bytes_10_%d_%d.rng", t, t);
+        REQUIRE(createTestRng(path, 5, 4));
+    }
+    RoutingGraph graph;
+    graph.setDataPath("/tmp/bytes_%d_%d_%d.rng");
+    graph.setCacheSize(64);
+    graph.setCacheBytes(250);
+    for (int t : tiles) {
+        REQUIRE(graph.getTile(t, t) != nullptr);
+    }
+    CHECK(graph.getTile(6, 6)->bytes == 108);
+    // the files go; what is still in the cache can be served, what was dropped cannot be loaded again
+    for (int t : tiles) {
+        char path[64];
+        snprintf(path, sizeof(path), "/tmp/bytes_10_%d_%d.rng", t, t);
+        remove(path);
+    }
+    CHECK(graph.getTile(1, 1) == nullptr);
+    CHECK(graph.getTile(2, 2) == nullptr);
+    CHECK(graph.getTile(5, 5) != nullptr);
+    CHECK(graph.getTile(6, 6) != nullptr);
 }
 
 TEST_CASE("RoutingGraph::lonLatToTile")

@@ -57,6 +57,8 @@ inline bool edgeIsBridge(uint16_t flags) { return (flags & (1 << 6)) != 0; }
 inline bool edgeIsTunnel(uint16_t flags) { return (flags & (1 << 7)) != 0; }
 inline int edgeBicycleAccess(uint16_t flags) { return (flags >> 8) & 0x3; }
 
+/* The router will not use an edge of a motorway or one that bicycles may not enter (see edgeCost() in router.cpp) */
+inline bool edgeIsRideable(uint16_t flags) { return edgeBicycleAccess(flags) != 0 && edgeRoadClass(flags) != 0; }
 /**
  * A loaded tile block.
  */
@@ -67,6 +69,7 @@ struct TileBlock {
     std::vector<RngBorderNode> borders;
     int tileX, tileY;
     uint32_t lruAge; // for LRU eviction
+    size_t bytes = 0; // memory the tables take, for the cache limit
 };
 
 /**
@@ -94,12 +97,17 @@ public:
 
     void setDataPath(const char* pathFormat);
     void setCacheSize(int maxBlocks);
+    /** Also keep the loaded tables under this many bytes (0 = no limit). A tile of a dense city is a few MB; the least
+     *  recently used are dropped first, but the two most recent are always kept. */
+    void setCacheBytes(size_t bytes);
 
     /** Get or load a tile block. Returns nullptr if file not found. */
     TileBlock* getTile(int tileX, int tileY);
 
-    /** Find the nearest node in a tile to given lon/lat (1e7). */
-    uint32_t findNearestNode(TileBlock* block, int32_t lon, int32_t lat);
+    /** Find the nearest node in a tile to given lon/lat (1e7). With needEdges only the nodes that have a rideable edge leaving them count:
+     *  a tile also holds copies of the nodes just across its border, reached by an edge and a border entry, and a route that
+     *  starts at one of those has nowhere to go. */
+    uint32_t findNearestNode(TileBlock* block, int32_t lon, int32_t lat, bool needEdges = false);
 
     /** Determine which tile a lon/lat point falls in at the configured zoom. */
     void lonLatToTile(double lon, double lat, int& tileX, int& tileY);
@@ -108,10 +116,12 @@ public:
 
 private:
     TileBlock* loadTile(int tileX, int tileY);
-    void evictIfNeeded();
+    void evictIfNeeded(size_t incoming);
 
     std::string _pathFormat;
     int _maxBlocks;
+    size_t _maxBytes = 0;
+    size_t _bytes = 0;
     int _zoom;
     uint32_t _ageCounter;
     std::unordered_map<TileKey, TileBlock*, TileKeyHash> _cache;

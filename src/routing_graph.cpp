@@ -33,6 +33,10 @@ void RoutingGraph::setCacheSize(int maxBlocks)
     _maxBlocks = maxBlocks;
 }
 
+void RoutingGraph::setCacheBytes(size_t bytes)
+{
+    _maxBytes = bytes;
+}
 void RoutingGraph::lonLatToTile(double lon, double lat, int& tileX, int& tileY)
 {
     WorldPos w = lonLatToWorld(lon, lat);
@@ -100,37 +104,55 @@ TileBlock* RoutingGraph::loadTile(int tileX, int tileY)
     }
 
     fclose(f);
-
-    evictIfNeeded();
-
+    block->bytes = block->nodes.size() * sizeof(RngNode) + block->edges.size() * sizeof(RngEdge)
+        + block->borders.size() * sizeof(RngBorderNode);
+    evictIfNeeded(block->bytes);
     TileKey key = { tileX, tileY };
     _cache[key] = block;
+    _bytes += block->bytes;
     return block;
 }
 
-void RoutingGraph::evictIfNeeded()
+void RoutingGraph::evictIfNeeded(size_t incoming)
 {
-    while ((int)_cache.size() >= _maxBlocks) {
+    // the search holds on to the tile it is in and, while it crosses a border, to the one beside it
+    while ((int)_cache.size() >= _maxBlocks || (_maxBytes && _cache.size() > 2 && _bytes + incoming > _maxBytes)) {
         // Find LRU entry
         auto oldest = _cache.begin();
         for (auto it = _cache.begin(); it != _cache.end(); ++it) {
             if (it->second->lruAge < oldest->second->lruAge)
                 oldest = it;
         }
+        _bytes -= oldest->second->bytes;
         delete oldest->second;
         _cache.erase(oldest);
     }
 }
 
-uint32_t RoutingGraph::findNearestNode(TileBlock* block, int32_t lon, int32_t lat)
+static bool hasRideableEdge(const TileBlock* block, uint32_t node)
+{
+    uint32_t k = block->nodes[node].firstEdge;
+    while (k != 0xFFFFFFFF && k < (uint32_t)block->edges.size()) {
+        const RngEdge& e = block->edges[k];
+        if (edgeIsRideable(e.flags))
+            return true;
+        if (e.nextEdge == 0xFFFF)
+            break;
+        k += e.nextEdge;
+    }
+    return false;
+}
+uint32_t RoutingGraph::findNearestNode(TileBlock* block, int32_t lon, int32_t lat, bool needEdges)
 {
     if (!block || block->nodes.empty())
         return UINT32_MAX;
 
-    uint32_t best = 0;
+    uint32_t best = UINT32_MAX;
     int64_t bestDist = std::numeric_limits<int64_t>::max();
 
     for (uint32_t i = 0; i < (uint32_t)block->nodes.size(); i++) {
+        if (needEdges && !hasRideableEdge(block, i))
+            continue;
         int64_t dx = (int64_t)block->nodes[i].lon - lon;
         int64_t dy = (int64_t)block->nodes[i].lat - lat;
         int64_t d = dx * dx + dy * dy;

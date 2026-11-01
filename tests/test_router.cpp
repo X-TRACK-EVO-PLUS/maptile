@@ -126,6 +126,22 @@ TEST_CASE("Router::findRoute says why it found nothing")
     }
 }
 
+TEST_CASE("Router::findRoute does not start at a copy of a node across a tile border")
+{
+    // A tile holds copies of the nodes just across its border; they have no edge of their own. In tile 842/387 the node
+    // nearest to 116.3192235, 39.9105235 is such a copy, at 116.3192235, 39.9097235.
+    Router router;
+    router.setDataPath(ROUTING_PATH);
+    router.setCacheSize(8);
+    RouteResult r = router.findRoute({ 116.3192235, 39.9105235 }, { 116.305, 39.92 });
+    CHECK(r.found);
+    CHECK(r.status == RouteStatus::Found);
+    CHECK(r.startSnapM < 300);
+    r = router.findRoute({ 116.305, 39.92 }, { 116.3192235, 39.9105235 });
+    CHECK(r.found);
+    CHECK(r.endSnapM < 300);
+}
+
 TEST_CASE("Router::findRoute with no data reports NoData")
 {
     Router router;

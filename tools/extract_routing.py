@@ -282,36 +282,74 @@ def _make_flags(way):
 
 # --- Islands ---
 
+def edge_is_rideable(flags):
+    """What the router's edgeCost() accepts: not a motorway, and bicycles may enter (the flags of _make_flags)."""
+    return ((flags >> 8) & 0x3) != 0 and ((flags >> 1) & 0x7) != 0
+def strong_components(nodes, edges):
+    """The strongly connected components of the directed graph: {node: component number}, the number of components.
+    Iterative Tarjan, so a long road does not hit the recursion limit."""
+    adj = defaultdict(list)
+    for a, b, _, _ in edges:
+        adj[a].append(b)
+    index, low, comp = {}, {}, {}
+    on_stack, stack = set(), []
+    counter = 0
+    ncomp = 0
+    for root in nodes:
+        if root in index:
+            continue
+        index[root] = low[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack.add(root)
+        work = [(root, iter(adj[root]))]
+        while work:
+            v, it = work[-1]
+            descended = False
+            for w in it:
+                if w not in index:
+                    index[w] = low[w] = counter
+                    counter += 1
+                    stack.append(w)
+                    on_stack.add(w)
+                    work.append((w, iter(adj[w])))
+                    descended = True
+                    break
+                if w in on_stack:
+                    low[v] = min(low[v], index[w])
+            if descended:
+                continue
+            work.pop()
+            if work:
+                u = work[-1][0]
+                low[u] = min(low[u], low[v])
+            if low[v] == index[v]:
+                while True:
+                    w = stack.pop()
+                    on_stack.discard(w)
+                    comp[w] = ncomp
+                    if w == v:
+                        break
+                ncomp += 1
+    return comp, ncomp
 def prune_islands(graph_nodes, edges, min_nodes):
-    """Drop the parts of the network that are cut off from the rest and smaller than min_nodes.
-
-    A destination that snaps to a road of such an island can never be reached, and the router would
-    search the whole network to find that out; without the islands it snaps to the road that leads somewhere."""
+    """Keep only the parts of the network where every junction can be reached from every other by bicycle, and that have min_nodes junctions or more.
+    Two things are dropped. Parts that are cut off from the rest: a destination that snaps to a road of such an island can never be
+    reached, and the router would search the whole network to find that out. And the junctions a rider can enter but not leave, or
+    leave but not enter, such as the end of a oneway street: the router starts from the junction nearest to the rider, and from
+    a dead end there is nowhere to go. Without them the nearest junction is one that leads somewhere."""
     if min_nodes <= 0:
         return graph_nodes, edges
-    parent = {n: n for n in graph_nodes}
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for a, b, _, _ in edges:
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
+    comp, ncomp = strong_components(graph_nodes, [e for e in edges if edge_is_rideable(e[3])])
     size = defaultdict(int)
     for n in graph_nodes:
-        size[find(n)] += 1
-    keep = {n for n in graph_nodes if size[find(n)] >= min_nodes}
+        size[comp[n]] += 1
+    keep = {n for n in graph_nodes if size[comp[n]] >= min_nodes}
     pruned_nodes = {n: graph_nodes[n] for n in sorted(keep)}
     pruned_edges = [e for e in edges if e[0] in keep and e[1] in keep]
-    parts = len({find(n) for n in keep})
-    print(f"  Islands: kept {len(keep)} of {len(graph_nodes)} nodes in {parts} network(s); dropped {len(size) - parts} smaller than {min_nodes}")
+    parts = len({comp[n] for n in keep})
+    print(f"  Islands: kept {len(keep)} of {len(graph_nodes)} nodes in {parts} network(s); dropped {ncomp - parts} smaller than {min_nodes}")
     return pruned_nodes, pruned_edges
-
-
 # --- Tile Splitting ---
 def split_into_tiles(graph_nodes, edges, zoom):
     """Split graph into tiles at given zoom level."""

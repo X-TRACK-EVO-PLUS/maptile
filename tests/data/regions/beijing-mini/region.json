@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "id": "beijing-mini",
+  "name": "北京小样例",
+  "version": 1,
+  "built": "2026-11-01",
+  "bbox": [
+    116.35,
+    39.9,
+    116.43,
+    39.94
+  ],
+  "tiles": {
+    "file": "tiles.mbtiles",
+    "minzoom": 13,
+    "maxzoom": 14,
+    "count": 34,
+    "bytes": 1089536,
+    "sha256": "5e8e5b8d49cd4b2bba8ac6e31b277c508de9573966085b640626d10b2d358795"
+  },
+  "routing": {
+    "dir": "routing",
+    "zoom": 10,
+    "files": 4,
+    "nodes": 16572,
+    "edges": 33025,
+    "bytes": 600220
+  },
+  "places": {
+    "file": "places.pidx",
+    "count": 4446,
+    "bytes": 500659,
+    "sha256": "89b488183ac9f6fde32cd009e3ea98df5bd247d188ec19eef52d639744dc5536"
+  },
+  "attribution": "(c) OpenStreetMap contributors (ODbL)",
+  "source": "maptile tests/data"
+}

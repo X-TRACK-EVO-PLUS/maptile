@@ -1,13 +1,15 @@
 # Place search index (`places.pidx`)
 
-`tools/build_places.py` turns the vector tiles of a region into the index the firmware searches
+`tools/build_places.py` turns the vector tiles (or an OSM extract) of a region into the index the firmware searches
 (`App/Service/Journey/PlaceIndex.*` in X-TRACK-EVO-PLUS). The file format, the key rules and how a query
 is ranked are in the header of the script and in `Docs/OfflineNavigation_Design.md` (4.2) of the firmware.
 
     pip install pypinyin
-    python3 tools/build_places.py tests/data/beijing-mini.mbtiles tests/data/places.pidx --extra tests/data/landmarks.csv
+    python3 tools/build_places.py tests/data/places.pidx --tiles tests/data/beijing-mini.mbtiles --extra tests/data/landmarks.csv
+    python3 tools/build_places.py places.pidx --pbf Beijing.osm.pbf [--bbox W,S,E,N]   # needs pyosmium too
 
-* Places are the point features of the `pois`, `place_labels` and `public_transport` layers (Shortbread schema).
+* With `--pbf` places are the named nodes and areas (centroid) of the OSM extract, which includes parks, palaces and
+  residential areas. With `--tiles` they are the point features of the `pois`, `place_labels` and `public_transport` layers (Shortbread schema).
   The same name within 150 m is one place.
 * Every place gets keys for its full pinyin, its initials (one key per reading for characters with several) and
   its lower-cased name, so the device needs no pinyin table. Output is deterministic.

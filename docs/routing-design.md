@@ -316,12 +316,12 @@ tools/extract_routing.py <input.osm.pbf> <output_dir> [--bbox BBOX] [--zoom ZOOM
 ### 6.2 数据获取示例
 
 ```bash
-# 下载北京区域 OSM 数据（约 700MB）
-wget https://download.geofabrik.de/asia/china-latest.osm.pbf
+# 下载北京区域 OSM 数据（BBBike 的城市提取，约 22 MB；`fetch_region.py` 会自动做这一步）
+wget https://download.bbbike.org/osm/bbbike/Beijing/Beijing.osm.pbf
 
-# 提取路网（北京五环范围）
+# 提取路网（北京五环范围，bbox 是 西,南,东,北）
 python3 tools/extract_routing.py \
-    china-latest.osm.pbf \
+    Beijing.osm.pbf \
     example/resource/routing \
     --bbox "116.1,39.7,116.7,40.1" \
     --zoom 10

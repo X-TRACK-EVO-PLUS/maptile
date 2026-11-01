@@ -46,8 +46,21 @@ renderer.render(canvas, cam, opt);              // canvas 是你的 Canvas 后�
 路线、定位点、标记这类叠加层由应用自己画：`Camera::toScreen()` / `lonLatToScreen()` 给出屏幕坐标，
 `panByScreen()` 处理拖动。
 
+## 数据工具
+`tools/` 里的 Python 脚本从 OpenStreetMap 数据做出一个区域数据包（矢量瓦片、路网、搜索索引、`region.json`）：
+```bash
+pip install pypinyin osmium
+python3 tools/fetch_region.py --id beijing --name 北京市区 --bbbike Beijing --work work/beijing --out Maps --archive
+```
+| 脚本 | 做什么 |
+| --- | --- |
+| `fetch_region.py` | 串起下面各步；每步的结果留在工作目录，再跑只做缺的 |
+| `download_tiles.py` | 按范围下载矢量瓦片到 `.mbtiles`，限速、断点续传 |
+| `extract_routing.py` | 从 `.pbf` 提取骑行路网，写 `.rng` |
+| `build_places.py` | 生成搜索索引 `places.pidx`，见 `docs/places-index.md` |
+| `pack_region.py` | 写 `region.json` 并检查数据包 |
+测试：`python3 -m unittest discover -s tests/tools`。数据包的格式和用法见 X-TRACK-EVO-PLUS 的 `Docs/MapData.md`。
 ## 后端
-
 | 后端 | 位置 | 用途 |
 | --- | --- | --- |
 | SVG | `backends/svg` | 单元测试、命令行 `maptile-svg`、给设计稿生成真实地图 |

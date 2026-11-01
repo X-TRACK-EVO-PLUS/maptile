@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build the place search index (places.pidx) from the vector tiles of a region.
 
-    build_places.py <tiles.mbtiles> <places.pidx> [--zoom Z] [--extra landmarks.csv]
-
+    build_places.py <places.pidx> (--tiles tiles.mbtiles | --pbf extract.osm.pbf) [--bbox W,S,E,N]
+                    [--zoom Z] [--extra landmarks.csv]
 The index is what the firmware's PlaceIndex (App/Service/Journey/PlaceIndex.*) searches: a table of
 named places and a sorted table of keys, so that a query is a binary search and a short scan. Each
 place gets up to three kinds of key (all normalised: NFKC, lower case, letters and digits only):
@@ -10,11 +10,14 @@ the full pinyin ("tiananmenguangchang"), the initials ("tamgc"), and the lower-c
 (Latin names and digits, "starbucks"). A character with several readings gets a key per reading,
 so the device needs no pinyin library.
 
-Places come from the point features of the "pois", "place_labels" and "public_transport" layers
-(Shortbread schema). Shortbread has no labels for parks and palaces, so --extra reads a CSV of
-"name,lon,lat,kind" lines for places to add by hand; a real data run reads OpenStreetMap itself,
-where these areas have names. The output is deterministic: the same input gives the same bytes.
-
+Places come from one of two sources:
+  --tiles  the point features of the "pois", "place_labels" and "public_transport" layers of vector tiles
+           (Shortbread schema). Shortbread has no labels for parks and palaces, so it is the quick way to
+           get an index for a demo region, not the way to get a good one.
+  --pbf    OpenStreetMap itself (needs pyosmium: pip install osmium): named nodes, and named areas (parks,
+           palaces, universities, residential compounds ...) placed at the middle of their outline.
+--extra reads a CSV of "name,lon,lat,kind" lines for places to add by hand. The output is deterministic:
+the same input gives the same bytes.
 File layout (little endian), see Docs/OfflineNavigation_Design.md 4.2:
 
     header (36 bytes)  "PIX1", version u16, header_size u16, place_count u32, key_count u32,
@@ -193,6 +196,104 @@ def classify(layer: str, p: dict):
     return OTHER, 0
 
 
+# ----------------------------------------------------------------------- OpenStreetMap data ---
+TOWN_PLACES = AREA_KINDS | {"city", "town", "village", "hamlet", "isolated_dwelling", "city_block", "square"}
+SIGHT_LEISURE = {"park", "garden", "nature_reserve", "stadium"}
+SIGHT_LANDUSE = {"cemetery"}
+# amenities that are things, not places to go to
+NOT_PLACES = {"parking", "parking_space", "parking_entrance", "bench", "shelter", "waste_basket", "waste_disposal", "recycling",
+              "bicycle_parking", "motorcycle_parking", "telephone", "post_box", "vending_machine", "atm", "charging_station",
+              "fire_hydrant", "clock", "give_box", "bbq", "loading_dock", "lounger", "hunting_stand", "hookah_lounge"}
+COMPOUND_LANDUSE = {"residential", "commercial", "retail"}
+
+
+def osm_classify(t):
+    """(kind, flags) of an OpenStreetMap object by its tags, or None if it is not a place to search for."""
+    a, s, tr = t.get("amenity"), t.get("shop"), t.get("tourism")
+    if t.get("place") in TOWN_PLACES:
+        return PLACE, 0
+    if a == "drinking_water":
+        return WATER_TOILET, FLAG_WATER
+    if a == "toilets":
+        return WATER_TOILET, FLAG_TOILET
+    if s == "bicycle" or a in ("bicycle_repair_station", "bicycle_rental"):
+        return BIKE, 0
+    if t.get("railway") in ("station", "halt", "subway_entrance", "tram_stop") or t.get("public_transport") == "station" or a == "bus_station" or t.get("aeroway") == "terminal":
+        return TRANSIT, 0
+    if tr in SIGHT_TOURISM or t.get("historic") or t.get("leisure") in SIGHT_LEISURE or t.get("landuse") in SIGHT_LANDUSE:
+        return SIGHT, 0
+    if tr in HOTEL_TOURISM:
+        return HOTEL, 0
+    if a in FOOD_AMENITY:
+        return FOOD, 0
+    if s in SUPPLY_SHOP:
+        return SHOP, 0
+    if a in MEDICAL_AMENITY or t.get("healthcare"):
+        return MEDICAL, 0
+    if a and a not in NOT_PLACES:
+        return OTHER, 0
+    if s or t.get("office") or t.get("craft") or t.get("leisure") or t.get("landuse") in COMPOUND_LANDUSE or tr:
+        return OTHER, 0
+    return None
+
+
+def osm_name(t):
+    """The name to search for, and other names that find the same place."""
+    name = (t.get("name:zh") or t.get("name") or "").strip()
+    if not name:
+        return None, ()
+    names = []
+    for key in ("name", "name:zh", "alt_name", "name:en", "official_name", "short_name", "old_name"):
+        for v in (t.get(key) or "").split(";"):
+            v = v.strip()
+            if v and v != name and v not in names:
+                names.append(v)
+    return name, tuple(sorted(names))
+
+
+def read_pbf(path: str, bbox):
+    """Named places of an OpenStreetMap extract: (name, lon, lat, kind, flags, rank, other_names)."""
+    try:
+        import osmium
+    except ImportError:
+        sys.exit("reading a .pbf needs pyosmium: pip install osmium")
+    found = []
+
+    def take(tags, lon, lat):
+        if bbox and not (bbox[0] <= lon <= bbox[2] and bbox[1] <= lat <= bbox[3]):
+            return
+        cls = osm_classify(tags)
+        name, others = osm_name(tags)
+        if cls is None or not name or name.endswith(SKIP_SUFFIXES):
+            return
+        kind, flags = cls
+        found.append((name, lon, lat, kind, flags, RANK[kind], others))
+
+    class Places(osmium.SimpleHandler):
+        def node(self, n):
+            if n.tags and n.location.valid():
+                take({t.k: t.v for t in n.tags}, n.location.lon, n.location.lat)
+
+        def area(self, a):
+            if not a.tags.get("name") and not a.tags.get("name:zh"):
+                return
+            tags = {t.k: t.v for t in a.tags}
+            if osm_classify(tags) is None:
+                return
+            west = south = 1e9
+            east = north = -1e9
+            for ring in a.outer_rings():
+                for ref in ring:
+                    if ref.location.valid():
+                        west, east = min(west, ref.lon), max(east, ref.lon)
+                        south, north = min(south, ref.lat), max(north, ref.lat)
+            if west <= east:
+                take(tags, (west + east) / 2, (south + north) / 2)
+
+    Places().apply_file(path, locations=True, idx="flex_mem")
+    return found
+
+
 def normalise(text: str) -> str:
     """The key normalisation of the design: NFKC, lower case, letters and digits only."""
     t = unicodedata.normalize("NFKC", text).lower()
@@ -203,26 +304,36 @@ def _words(chunk: str):
     return re.findall(r"[A-Za-z]+|\d+", chunk)
 
 
+def _tokens(name: str):
+    """The syllable-sized pieces of a name: a Chinese character, or a run of Latin letters, or of digits."""
+    out = []
+    for m in re.finditer(r"[\u3400-\u9fff\uf900-\ufaff]|[A-Za-z]+|\d+", name):
+        out.append(m.group())
+    return out
+
+
 def readings(name: str):
     """Up to MAX_READINGS lists of syllables for a name: the usual reading, then ones that differ in one place."""
     main = [normalise(s) for s in lazy_pinyin(name, style=Style.NORMAL, errors=_words)]
     main = [s for s in main if s]
     out = [main]
-    try:
-        alt = pinyin(name, style=Style.NORMAL, heteronym=True, errors=_words)
-    except Exception:  # an odd character: the usual reading alone
-        alt = []
-    if len(alt) == len(main):
-        for pos, choices in enumerate(alt):
-            for c in choices:
-                c = normalise(c)
-                if c and c != main[pos]:
-                    variant = main[:pos] + [c] + main[pos + 1:]
-                    if variant not in out and len(out) < MAX_READINGS:
-                        out.append(variant)
+    tokens = _tokens(name)
+    if len(tokens) != len(main):  # something odd in the name: the usual reading alone
+        return out
+    for pos, tok in enumerate(tokens):
+        if not ("\u3400" <= tok <= "\u9fff" or "\uf900" <= tok <= "\ufaff"):
+            continue
+        try:
+            choices = pinyin(tok, style=Style.NORMAL, heteronym=True)[0]
+        except Exception:
+            continue
+        for c in choices:
+            c = normalise(c)
+            if c and c != main[pos]:
+                variant = main[:pos] + [c] + main[pos + 1:]
+                if variant not in out and len(out) < MAX_READINGS:
+                    out.append(variant)
     return out
-
-
 def keys_of(name: str):
     ks = []
     for syllables in readings(name):
@@ -308,10 +419,14 @@ def build(places) -> bytes:
 
     records = []
     pairs = set()
-    for pid, (name, lon, lat, kind, flags, rank) in enumerate(places):
+    for pid, place in enumerate(places):
+        name, lon, lat, kind, flags, rank = place[:6]
         records.append((round(lon * 1e7), round(lat * 1e7), intern(name), kind, rank, flags))
         for k in keys_of(name):
             pairs.add((k.encode("utf-8"), pid))
+        for other in (place[6] if len(place) > 6 else ()):
+            for k in keys_of(other):
+                pairs.add((k.encode("utf-8"), pid))
     ordered = sorted(pairs)
     key_table = [(intern(k.decode("utf-8")), pid) for k, pid in ordered]
 
@@ -327,15 +442,24 @@ def build(places) -> bytes:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mbtiles")
-    ap.add_argument("out")
+    ap.add_argument("out", help="the index to write (places.pidx)")
+    ap.add_argument("--tiles", help="vector tiles (.mbtiles) to read the places from")
+    ap.add_argument("--pbf", help="OpenStreetMap extract (.osm.pbf) to read the places from")
+    ap.add_argument("--bbox", help="west,south,east,north: keep only the places inside")
     ap.add_argument("--zoom", type=int, help="tile zoom to read (default: the highest in the file)")
     ap.add_argument("--extra", help="CSV of name,lon,lat,kind lines to add (kind: place sight food shop bike water toilet transit hotel medical other)")
     a = ap.parse_args()
-    places = read_tiles(a.mbtiles, a.zoom)
+    if not a.tiles and not a.pbf:
+        sys.exit("give --tiles or --pbf")
+    bbox = tuple(float(v) for v in a.bbox.split(",")) if a.bbox else None
+    places = []
+    if a.tiles:
+        places += [p for p in read_tiles(a.tiles, a.zoom) if not bbox or (bbox[0] <= p[1] <= bbox[2] and bbox[1] <= p[2] <= bbox[3])]
+    if a.pbf:
+        places += read_pbf(a.pbf, bbox)
     n_tiles = len(places)
     if a.extra:
-        places += read_extra(a.extra)
+        places += [p for p in read_extra(a.extra) if not bbox or (bbox[0] <= p[1] <= bbox[2] and bbox[1] <= p[2] <= bbox[3])]
     places = dedupe(places)
     data = build(places)
     with open(a.out, "wb") as f:
@@ -343,7 +467,7 @@ def main():
     kinds: dict[int, int] = {}
     for p in places:
         kinds[p[3]] = kinds.get(p[3], 0) + 1
-    print(f"{len(places)} places ({n_tiles} from the tiles), {len(data) / 1024:.0f} KiB; kinds "
+    print(f"{len(places)} places ({n_tiles} read), {len(data) / 1024:.0f} KiB; kinds "
           + " ".join(f"{k}={v}" for k, v in sorted(kinds.items())), file=sys.stderr)
 
 

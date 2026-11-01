@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Extract routing network from OSM XML and output .rng binary files.
+Extract the cycling routing network from OpenStreetMap data and write the .rng tiles the router reads.
 
-Usage:
-    python3 tools/extract_routing.py tools/beijing_roads.osm example/resource/routing --zoom 10
+    extract_routing.py <input.osm | input.osm.pbf> <output_dir> [--zoom 10] [--bbox W,S,E,N]
+
+The input is OSM XML or a PBF extract (a PBF needs pyosmium: pip install osmium). --bbox keeps
+only the roads inside a box; a road that leaves it is cut where it does. The output is
+<output_dir>/<zoom>/<x>/<y>.rng, and the output of the same input is always the same bytes.
 """
 
 import argparse
@@ -24,7 +27,7 @@ HIGHWAY_CLASS = {
     "primary": 2, "primary_link": 2,
     "secondary": 3, "secondary_link": 3,
     "tertiary": 4, "tertiary_link": 4,
-    "residential": 5, "living_street": 5, "unclassified": 5,
+    "residential": 5, "living_street": 5, "unclassified": 5, "service": 5,
     "cycleway": 6,
     "path": 7, "track": 7, "pedestrian": 7,
 }
@@ -89,49 +92,121 @@ def parse_osm(filepath):
     ways = []
     for elem in root.findall("way"):
         tags = {t.get("k"): t.get("v") for t in elem.findall("tag")}
-        hw = tags.get("highway")
-        if hw not in HIGHWAY_CLASS:
-            continue
-
+        # refs whose node is missing are dropped
         nd_refs = [int(nd.get("ref")) for nd in elem.findall("nd")]
-        # Filter out refs with missing nodes
-        nd_refs = [r for r in nd_refs if r in nodes]
-        if len(nd_refs) < 2:
-            continue
-
-        oneway = tags.get("oneway", "no") in ("yes", "true", "1", "-1")
-        reverse = tags.get("oneway") == "-1"
-        surface = SURFACE_MAP.get(tags.get("surface", ""), 3)
-        bicycle = tags.get("bicycle", "")
-        if bicycle in BICYCLE_ACCESS:
-            bike_access = BICYCLE_ACCESS[bicycle]
-        elif hw == "motorway" or hw == "motorway_link":
-            bike_access = 0
-        elif hw == "cycleway":
-            bike_access = 3
-        else:
-            bike_access = 2
-
-        bridge = 1 if tags.get("bridge", "no") != "no" else 0
-        tunnel = 1 if tags.get("tunnel", "no") != "no" else 0
-
-        ways.append({
-            "nodes": nd_refs,
-            "road_class": HIGHWAY_CLASS[hw],
-            "oneway": oneway,
-            "reverse": reverse,
-            "surface": surface,
-            "bicycle_access": bike_access,
-            "bridge": bridge,
-            "tunnel": tunnel,
-        })
-
+        way = _way_record(tags, [r for r in nd_refs if r in nodes])
+        if way:
+            ways.append(way)
     print(f"  Parsed {len(nodes)} nodes, {len(ways)} ways")
     return nodes, ways
 
 
-# --- Graph Building ---
+# service roads that lead nowhere a rider is going
+SKIP_SERVICE = {"parking_aisle", "drive-through", "driveway", "emergency_access", "alley_unused"}
 
+
+def _way_record(tags, refs):
+    """The routing record of a highway way from its tags, or None if it is not for bicycles."""
+    hw = tags.get("highway")
+    if hw not in HIGHWAY_CLASS or len(refs) < 2:
+        return None
+    if hw == "service" and tags.get("service") in SKIP_SERVICE:
+        return None
+    # closed to the public, unless the bicycle is let in by name
+    if tags.get("access") in ("private", "no", "customers", "delivery") and tags.get("bicycle") not in ("yes", "designated", "permissive"):
+        return None
+    if tags.get("bicycle") == "no" and hw not in ("motorway", "motorway_link"):
+        return None
+    oneway = tags.get("oneway", "no") in ("yes", "true", "1", "-1")
+    reverse = tags.get("oneway") == "-1"
+    surface = SURFACE_MAP.get(tags.get("surface", ""), 3)
+    bicycle = tags.get("bicycle", "")
+    if bicycle in BICYCLE_ACCESS:
+        bike_access = BICYCLE_ACCESS[bicycle]
+    elif hw in ("motorway", "motorway_link"):
+        bike_access = 0
+    elif hw == "cycleway":
+        bike_access = 3
+    else:
+        bike_access = 2
+    return {
+        "nodes": refs,
+        "road_class": HIGHWAY_CLASS[hw],
+        "oneway": oneway,
+        "reverse": reverse,
+        "surface": surface,
+        "bicycle_access": bike_access,
+        "bridge": 1 if tags.get("bridge", "no") != "no" else 0,
+        "tunnel": 1 if tags.get("tunnel", "no") != "no" else 0,
+    }
+
+
+def _runs_inside(points, bbox):
+    """Cut a list of (ref, lat, lon) into the runs that lie inside bbox = (west, south, east, north)."""
+    if bbox is None:
+        return [points]
+    w, s_, e, n = bbox
+    runs, cur = [], []
+    for pt in points:
+        _, lat, lon = pt
+        if w <= lon <= e and s_ <= lat <= n:
+            cur.append(pt)
+        else:
+            if len(cur) >= 2:
+                runs.append(cur)
+            cur = []
+    if len(cur) >= 2:
+        runs.append(cur)
+    return runs
+
+
+def parse_pbf(filepath, bbox=None):
+    """Read the highways of a PBF extract. Same result as parse_osm()."""
+    try:
+        import osmium
+    except ImportError:
+        sys.exit("reading a .pbf needs pyosmium: pip install osmium")
+    print(f"Reading {filepath}...")
+    nodes = {}
+    ways = []
+
+    class Highways(osmium.SimpleHandler):
+        def way(self, w):
+            if w.tags.get("highway") not in HIGHWAY_CLASS:
+                return
+            pts = []
+            for n in w.nodes:
+                if n.location.valid():
+                    pts.append((n.ref, n.location.lat, n.location.lon))
+            for run in _runs_inside(pts, bbox):
+                rec = _way_record(dict((t.k, t.v) for t in w.tags), [r for r, _, _ in run])
+                if rec is None:
+                    continue
+                for ref, lat, lon in run:
+                    nodes[ref] = (lat, lon)
+                ways.append(rec)
+
+    Highways().apply_file(filepath, locations=True, idx="flex_mem")
+    print(f"  Read {len(nodes)} nodes, {len(ways)} ways")
+    return nodes, ways
+
+
+def _clip_ways(nodes, ways, bbox):
+    """The XML reader's counterpart of _runs_inside: cut every way at the box."""
+    if bbox is None:
+        return nodes, ways
+    out = []
+    for way in ways:
+        pts = [(r, nodes[r][0], nodes[r][1]) for r in way["nodes"]]
+        for run in _runs_inside(pts, bbox):
+            rec = dict(way)
+            rec["nodes"] = [r for r, _, _ in run]
+            out.append(rec)
+    used = {r for w in out for r in w["nodes"]}
+    return {r: nodes[r] for r in used}, out
+
+
+# --- Graph Building ---
 def build_graph(nodes, ways):
     """
     Build a routing graph. Split ways at intersections.
@@ -205,8 +280,39 @@ def _make_flags(way):
     return flags
 
 
-# --- Tile Splitting ---
+# --- Islands ---
 
+def prune_islands(graph_nodes, edges, min_nodes):
+    """Drop the parts of the network that are cut off from the rest and smaller than min_nodes.
+
+    A destination that snaps to a road of such an island can never be reached, and the router would
+    search the whole network to find that out; without the islands it snaps to the road that leads somewhere."""
+    if min_nodes <= 0:
+        return graph_nodes, edges
+    parent = {n: n for n in graph_nodes}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a, b, _, _ in edges:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+    size = defaultdict(int)
+    for n in graph_nodes:
+        size[find(n)] += 1
+    keep = {n for n in graph_nodes if size[find(n)] >= min_nodes}
+    pruned_nodes = {n: graph_nodes[n] for n in sorted(keep)}
+    pruned_edges = [e for e in edges if e[0] in keep and e[1] in keep]
+    parts = len({find(n) for n in keep})
+    print(f"  Islands: kept {len(keep)} of {len(graph_nodes)} nodes in {parts} network(s); dropped {len(size) - parts} smaller than {min_nodes}")
+    return pruned_nodes, pruned_edges
+
+
+# --- Tile Splitting ---
 def split_into_tiles(graph_nodes, edges, zoom):
     """Split graph into tiles at given zoom level."""
     # Assign each node to a tile
@@ -358,14 +464,29 @@ def write_rng(filepath, graph_nodes, tile_node_ids, tile_edge_list,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract routing network from OSM XML")
-    parser.add_argument("input", help="Input OSM XML file")
+    parser = argparse.ArgumentParser(description="Extract the cycling routing network from OSM XML or a PBF extract")
+    parser.add_argument("input", help="Input OSM XML (.osm) or PBF (.osm.pbf) file")
     parser.add_argument("output_dir", help="Output directory for .rng files")
     parser.add_argument("--zoom", type=int, default=10, help="Tile zoom level (default: 10)")
+    parser.add_argument("--bbox", help="west,south,east,north: keep only the roads inside")
+    parser.add_argument("--min-component", type=int, default=500,
+                        help="drop the parts of the network smaller than this many junctions that are cut off from the rest (default 500; 0 keeps all)")
     args = parser.parse_args()
+    bbox = tuple(float(v) for v in args.bbox.split(",")) if args.bbox else None
+    if bbox is not None and (len(bbox) != 4 or bbox[0] >= bbox[2] or bbox[1] >= bbox[3]):
+        sys.exit("--bbox is west,south,east,north")
 
-    nodes, ways = parse_osm(args.input)
+    if args.input.endswith(".pbf"):
+        nodes, ways = parse_pbf(args.input, bbox)
+    else:
+        nodes, ways = parse_osm(args.input)
+        nodes, ways = _clip_ways(nodes, ways, bbox)
+    if not ways:
+        sys.exit("no roads found in the input")
     graph_nodes, edges = build_graph(nodes, ways)
+    graph_nodes, edges = prune_islands(graph_nodes, edges, args.min_component)
+    if not graph_nodes:
+        sys.exit("no network of that size in the input (see --min-component)")
     tile_nodes, tile_edges, border_edges, node_tile = split_into_tiles(
         graph_nodes, edges, args.zoom)
 
@@ -374,10 +495,13 @@ def main():
     total_files = 0
     total_bytes = 0
 
+    borders_by_tile = defaultdict(list)
+    for b in border_edges:
+        borders_by_tile[b[0]].append(b)
+
     for (tx, ty), node_ids in sorted(tile_nodes.items()):
         edge_list = tile_edges.get((tx, ty), [])
-        borders = [b for b in border_edges if b[0] == (tx, ty)]
-
+        borders = borders_by_tile.get((tx, ty), [])
         filepath = os.path.join(args.output_dir, str(args.zoom), str(tx), f"{ty}.rng")
         write_rng(filepath, graph_nodes, node_ids, edge_list,
                   borders, node_tile, (tx, ty))

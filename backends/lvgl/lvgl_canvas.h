@@ -7,7 +7,6 @@
 #include "lvgl/lvgl.h"
 #include "maptile/canvas.h"
 #include <functional>
-
 namespace MapTile {
 
 /*
@@ -16,7 +15,8 @@ namespace MapTile {
  * wherever you hold an lv_layer_t) and pass it to MapRenderer::render().
  *
  * `origin` is where the map viewport's top-left corner sits in layer
- * coordinates. The font for each text role is chosen by the application,
+ * coordinates. fill() and stroke() collect their shapes in one lv_draw_vector_dsc_t that is drawn at endFrame() or before
+ * the first text, so that ThorVG gets a frame's shapes at once. The font for each text role is chosen by the application,
  * which is where font families, variable weights and theme changes live.
  */
 class LvglCanvas : public Canvas {
@@ -35,10 +35,13 @@ public:
     void stroke(const PathBatch& paths, const LineStyle& style) override;
     Vec2 measureText(const char* utf8, const TextStyle& style) override;
     void drawText(Vec2 center, const char* utf8, const TextStyle& style) override;
-    void endFrame() override { }
+    void endFrame() override { submit(); }
+    ~LvglCanvas() override;
 
 private:
     lv_vector_path_t* buildPath(const PathBatch& b);
+    void submit();
+    lv_draw_vector_dsc_t* _dsc = nullptr;
     void drawLabel(Vec2 center, const char* utf8, const lv_font_t* font, const Color& color, lv_point_t size);
 
     lv_layer_t* _layer;

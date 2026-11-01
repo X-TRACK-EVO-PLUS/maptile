@@ -45,21 +45,22 @@ lv_vector_path_t* LvglCanvas::buildPath(const PathBatch& b)
 void LvglCanvas::fill(const PathBatch& rings, const Color& color)
 {
     lv_vector_path_t* path = buildPath(rings);
-    lv_draw_vector_dsc_t* dsc = lv_draw_vector_dsc_create(_layer);
-    lv_draw_vector_dsc_set_fill_color(dsc, lvColor(color));
-    lv_draw_vector_dsc_set_fill_opa(dsc, color.a);
-    lv_draw_vector_dsc_set_fill_rule(dsc, LV_VECTOR_FILL_NONZERO);
-    lv_draw_vector_dsc_set_stroke_opa(dsc, LV_OPA_TRANSP);
-    lv_draw_vector_dsc_add_path(dsc, path);
-    lv_draw_vector(dsc);
-    lv_draw_vector_dsc_delete(dsc);
+    if (!_dsc)
+        _dsc = lv_draw_vector_dsc_create(_layer);
+    lv_draw_vector_dsc_set_fill_color(_dsc, lvColor(color));
+    lv_draw_vector_dsc_set_fill_opa(_dsc, color.a);
+    lv_draw_vector_dsc_set_fill_rule(_dsc, LV_VECTOR_FILL_NONZERO);
+    lv_draw_vector_dsc_set_stroke_opa(_dsc, LV_OPA_TRANSP);
+    lv_draw_vector_dsc_add_path(_dsc, path);
     lv_vector_path_delete(path);
 }
 
 void LvglCanvas::stroke(const PathBatch& paths, const LineStyle& s)
 {
     lv_vector_path_t* path = buildPath(paths);
-    lv_draw_vector_dsc_t* dsc = lv_draw_vector_dsc_create(_layer);
+    if (!_dsc)
+        _dsc = lv_draw_vector_dsc_create(_layer);
+    lv_draw_vector_dsc_t* dsc = _dsc;
     lv_draw_vector_dsc_set_fill_opa(dsc, LV_OPA_TRANSP);
     lv_draw_vector_dsc_set_stroke_color(dsc, lvColor(s.color));
     lv_draw_vector_dsc_set_stroke_opa(dsc, s.color.a);
@@ -68,12 +69,29 @@ void LvglCanvas::stroke(const PathBatch& paths, const LineStyle& s)
                                                                                                                  : LV_VECTOR_STROKE_CAP_ROUND);
     lv_draw_vector_dsc_set_stroke_join(dsc, s.join == Join::MITER ? LV_VECTOR_STROKE_JOIN_MITER : s.join == Join::BEVEL ? LV_VECTOR_STROKE_JOIN_BEVEL
                                                                                                                         : LV_VECTOR_STROKE_JOIN_ROUND);
+    /* the dsc is shared by the batches of a frame: a solid line must not inherit the dash of the one before */
     if (s.dash && s.dashCount > 0)
         lv_draw_vector_dsc_set_stroke_dash(dsc, const_cast<float*>(s.dash), (uint16_t)s.dashCount);
+    else
+        lv_draw_vector_dsc_set_stroke_dash(dsc, nullptr, 0);
     lv_draw_vector_dsc_add_path(dsc, path);
-    lv_draw_vector(dsc);
-    lv_draw_vector_dsc_delete(dsc);
     lv_vector_path_delete(path);
+}
+
+LvglCanvas::~LvglCanvas()
+{
+    submit();
+}
+
+/* The shapes of a frame are handed to ThorVG together: it prepares the shapes of one canvas on its worker threads, and every
+ * lv_draw_vector() starts a canvas of its own. Text goes on top of the shapes, so it submits first. */
+void LvglCanvas::submit()
+{
+    if (!_dsc)
+        return;
+    lv_draw_vector(_dsc);
+    lv_draw_vector_dsc_delete(_dsc);
+    _dsc = nullptr;
 }
 
 Vec2 LvglCanvas::measureText(const char* utf8, const TextStyle& style)
@@ -103,6 +121,7 @@ void LvglCanvas::drawLabel(Vec2 c, const char* utf8, const lv_font_t* font, cons
 
 void LvglCanvas::drawText(Vec2 c, const char* utf8, const TextStyle& style)
 {
+    submit();
     const lv_font_t* font = _fonts(style);
     lv_point_t size;
     lv_text_get_size(&size, utf8, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);

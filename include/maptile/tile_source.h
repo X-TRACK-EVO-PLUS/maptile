@@ -42,6 +42,26 @@ private:
     int _minZoom, _maxZoom;
 };
 
+/* Two sources as one, the detailed one over the overview: a tile is the detail source's when it has it, and the
+ * overview's when it has not (above the detail's zoom range, or outside the area it covers). The overview is
+ * optional: with none this is the detail source as it is. Neither is owned. The zoom range is the two ranges
+ * together, so the map can be zoomed out as far as the overview goes. */
+class LayeredSource : public TileSource {
+public:
+    LayeredSource(TileSource& detail, TileSource* overview)
+        : _detail(detail)
+        , _overview(overview)
+    {
+    }
+    bool getTile(int z, int x, int y, std::vector<uint8_t>& out) override;
+    int minZoom() const override;
+    int maxZoom() const override;
+
+private:
+    TileSource& _detail;
+    TileSource* _overview;
+};
+
 /* An MBTiles (SQLite) file. Available when built with MAPTILE_WITH_SQLITE. */
 class MBTilesSource : public TileSource {
 public:

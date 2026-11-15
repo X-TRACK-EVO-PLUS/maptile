@@ -3,6 +3,7 @@ add_executable(
   test_main.cpp
   test_camera.cpp
   test_edge_flags.cpp
+  test_layered_source.cpp
   test_mvt.cpp
   test_renderer.cpp
   test_router.cpp

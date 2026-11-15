@@ -3,6 +3,7 @@
  * Copyright (c) 2024 - 2026 HanfG, _VIFEXTech
  */
 #include "maptile/tile_source.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -72,6 +73,23 @@ bool DirectorySource::getTile(int z, int x, int y, std::vector<uint8_t>& out)
     bool ok = n > 0 && std::fread(raw.data(), 1, raw.size(), f) == raw.size();
     std::fclose(f);
     return ok && gunzipMaybe(raw.data(), raw.size(), out);
+}
+
+bool LayeredSource::getTile(int z, int x, int y, std::vector<uint8_t>& out)
+{
+    if (z >= _detail.minZoom() && z <= _detail.maxZoom() && _detail.getTile(z, x, y, out))
+        return true;
+    return _overview && z >= _overview->minZoom() && z <= _overview->maxZoom() && _overview->getTile(z, x, y, out);
+}
+
+int LayeredSource::minZoom() const
+{
+    return _overview ? std::min(_detail.minZoom(), _overview->minZoom()) : _detail.minZoom();
+}
+
+int LayeredSource::maxZoom() const
+{
+    return _overview ? std::max(_detail.maxZoom(), _overview->maxZoom()) : _detail.maxZoom();
 }
 
 #ifdef MAPTILE_WITH_SQLITE

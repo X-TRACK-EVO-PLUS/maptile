@@ -30,6 +30,10 @@ struct RenderOptions {
     bool onlyCached = false;
 };
 
+/* A tile of the source */
+struct TileId {
+    int z, x, y;
+};
 struct RenderStats {
     int tileZoom = 0;
     int tilesDrawn = 0;
@@ -71,6 +75,9 @@ public:
      * the source does not have is the background. */
     bool drawBitmapTile(Canvas& canvas, int level, int x, int y, float zoom, int bleed, const RenderOptions& options = RenderOptions());
     static float bitmapPixels(int level, float zoom);
+    /* The tiles of the source that renderLabels() would use for `camera` and that are not decoded yet: for a frame that
+     * draws with onlyCached, what to have decoded elsewhere */
+    std::vector<TileId> uncachedTiles(const Camera& camera);
     void resetStats() { _stats = RenderStats(); }
     const RenderStats& stats() const { return _stats; }
 
@@ -91,6 +98,7 @@ private:
     TileStore* _store;
     const Style& _style;
     RenderStats _stats;
+    std::vector<TileId> _pending; /* what collectTiles left out, the last time */
     PathBatch _batch;
 };
 

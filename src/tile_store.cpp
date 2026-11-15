@@ -17,6 +17,17 @@ bool TileStore::cached(int z, int x, int y) const
     std::lock_guard<std::mutex> lock(_mutex);
     return _cache.count(tileKey(z, x, y)) != 0;
 }
+bool TileStore::find(int z, int x, int y, std::shared_ptr<const MvtTile>& out)
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    auto it = _cache.find(tileKey(z, x, y));
+    if (it == _cache.end()) {
+        return false;
+    }
+    _lru.splice(_lru.begin(), _lru, it->second.lru);
+    out = it->second.tile;
+    return true;
+}
 void TileStore::setLimit(size_t tiles)
 {
     std::lock_guard<std::mutex> lock(_mutex);

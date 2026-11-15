@@ -7,6 +7,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 namespace MapTile {
 bool drawTileBitmap(MapRenderer& renderer, TileBitmap& out)
 {
@@ -30,8 +35,9 @@ bool drawTileBitmap(MapRenderer& renderer, TileBitmap& out)
     }
     return true;
 }
-BitmapPool::BitmapPool(TileStore& store, int threads)
+BitmapPool::BitmapPool(TileStore& store, int threads, int nice)
     : _store(store)
+    , _nice(nice)
 {
     for (int i = 0; i < threads; i++) {
         _threads.emplace_back([this] { work(); });
@@ -59,6 +65,12 @@ void BitmapPool::setStyle(const Style& style)
 }
 void BitmapPool::run(const Job& job, const std::shared_ptr<const Style>& style, uint32_t generation)
 {
+    if (job.decodeOnly) {
+        _store.get(job.level, job.x, job.y);
+        std::lock_guard<std::mutex> lock(_mutex);
+        _running.erase(std::remove(_running.begin(), _running.end(), job), _running.end());
+        return;
+    }
     MapRenderer renderer(_store, *style);
     TileBitmap bitmap;
     bitmap.level = job.level;
@@ -119,6 +131,12 @@ bool BitmapPool::busy() const
 }
 void BitmapPool::work()
 {
+#if defined(__linux__)
+    /* the priority of a thread of its own: setpriority() takes the thread's id on Linux */
+    if (_nice > 0) {
+        setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), _nice);
+    }
+#endif
     for (;;) {
         Job job;
         std::shared_ptr<const Style> style;

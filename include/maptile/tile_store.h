@@ -25,6 +25,9 @@ public:
     std::shared_ptr<const MvtTile> get(int z, int x, int y, bool* decoded = nullptr);
     /* Whether get() would answer at once */
     bool cached(int z, int x, int y) const;
+    /* The tile if it is kept (`out`, null when the source has none) and true; false, and nothing read, if it is not: for
+     * a thread that must not wait. cached() then get() could find it gone in between, read by another thread. */
+    bool find(int z, int x, int y, std::shared_ptr<const MvtTile>& out);
     void setLimit(size_t tiles);
     void clear();
     size_t size() const;

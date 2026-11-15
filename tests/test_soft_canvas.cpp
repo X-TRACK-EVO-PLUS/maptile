@@ -1,4 +1,6 @@
+#include "bitmap_pool.h"
 #include "maptile/renderer.h"
+#include "pixel_blit.h"
 #include "soft_canvas.h"
 #include "test_common.h"
 #include <cmath>
@@ -390,4 +392,177 @@ TEST_CASE("TileStore: threads that want one tile decode it once, and everyone ge
     CHECK(store.size() <= 1);
     store.clear();
     CHECK(store.size() == 0);
+}
+TEST_CASE("TileStore: find answers from what is kept and reads nothing; decode-only jobs fill it")
+{
+    PoolFixture fx;
+    if (!fx.ok) {
+        MESSAGE("fixture needs sqlite3, skipping");
+        return;
+    }
+    TileStore store(fx.source);
+    const WorldPos w = lonLatToWorld(116.3895, 39.9225);
+    const int x = (int)(w.x * (1 << 14)), y = (int)(w.y * (1 << 14));
+    std::shared_ptr<const MvtTile> tile;
+    CHECK_FALSE(store.find(14, x, y, tile));
+    CHECK(store.size() == 0);
+    /* a renderer that may not decode leaves the tiles out and says which they are */
+    MapRenderer renderer(store, fx.style);
+    Camera cam;
+    cam.viewW = 240;
+    cam.viewH = 240;
+    cam.anchor = { 120, 120 };
+    cam.setCenterLonLat(116.3895, 39.9225);
+    cam.zoom = 14.5f;
+    const std::vector<TileId> wanted = renderer.uncachedTiles(cam);
+    REQUIRE_FALSE(wanted.empty());
+    CHECK(store.size() == 0);
+    /* the threads decode them, nothing comes out of the pool, and then they are all there */
+    BitmapPool pool(store, 2, 5);
+    pool.setStyle(fx.style);
+    std::vector<BitmapPool::Job> jobs;
+    for (const TileId& id : wanted) {
+        BitmapPool::Job j = { id.z, id.x, id.y, 0, 0 };
+        j.decodeOnly = true;
+        jobs.push_back(j);
+    }
+    pool.want(jobs);
+    REQUIRE(waitFor(pool));
+    CHECK(pool.take().empty());
+    CHECK(renderer.uncachedTiles(cam).empty());
+    CHECK(store.find(14, x, y, tile));
+    CHECK(static_cast<bool>(tile));
+    /* with no threads, at once */
+    TileStore other(fx.source);
+    BitmapPool inline0(other, 0);
+    inline0.setStyle(fx.style);
+    inline0.want(jobs);
+    CHECK(other.size() == wanted.size());
+}
+
+namespace {
+struct Pixels {
+    int w, h;
+    std::vector<uint32_t> px;
+    PixelTarget t;
+    Pixels(int width, int height, uint32_t fill = 0xFF000000)
+        : w(width)
+        , h(height)
+        , px((size_t)width * height, fill)
+    {
+        t.pixels = px.data();
+        t.width = w;
+        t.height = h;
+        t.stride = w * 4;
+    }
+    uint32_t at(int x, int y) const { return px[(size_t)y * w + x]; }
+};
+/* A bitmap whose pixel (u, v) has red u * 16 and green v * 16 */
+std::vector<uint32_t> ramp(int n)
+{
+    std::vector<uint32_t> b((size_t)n * n);
+    for (int v = 0; v < n; v++) {
+        for (int u = 0; u < n; u++) {
+            b[(size_t)v * n + u] = 0xFF000000u | (uint32_t)(u * 16) << 16 | (uint32_t)(v * 16) << 8;
+        }
+    }
+    return b;
+}
+int red(uint32_t c) { return (c >> 16) & 255; }
+int green(uint32_t c) { return (c >> 8) & 255; }
+} // namespace
+
+TEST_CASE("pixel blit: a bitmap at a whole pixel is copied, clipped, and only there")
+{
+    Pixels p(20, 20);
+    const std::vector<uint32_t> b = ramp(8);
+    PixelAffine m;
+    m.ox = 4;
+    m.oy = 5;
+    REQUIRE(blitAffine(p.t, { 0, 0, 20, 20 }, b.data(), 8, 8, 8 * 4, m));
+    CHECK(p.at(4, 5) == b[0]);
+    CHECK(p.at(11, 12) == b[7 * 8 + 7]);
+    CHECK(p.at(3, 5) == 0xFF000000);
+    CHECK(p.at(12, 12) == 0xFF000000);
+    /* clipped: the left half only */
+    Pixels q(20, 20);
+    REQUIRE(blitAffine(q.t, { 0, 0, 8, 20 }, b.data(), 8, 8, 8 * 4, m));
+    CHECK(q.at(7, 6) == b[1 * 8 + 3]);
+    CHECK(q.at(8, 6) == 0xFF000000);
+    /* off the picture, partly: no write outside it */
+    Pixels r(6, 6);
+    m.ox = -3;
+    m.oy = 2;
+    REQUIRE(blitAffine(r.t, { -10, -10, 100, 100 }, b.data(), 8, 8, 8 * 4, m));
+    CHECK(r.at(0, 2) == b[3]);
+    CHECK(r.at(4, 5) == b[3 * 8 + 7]);
+}
+
+TEST_CASE("pixel blit: scaled and turned, the samples are the bitmap's, blended between its pixels")
+{
+    const std::vector<uint32_t> b = ramp(8);
+    /* twice the size: the middle of a picture pixel falls between the bitmap's, a quarter of the way */
+    Pixels p(16, 16);
+    PixelAffine twice;
+    twice.ux = 2;
+    twice.vy = 2;
+    REQUIRE(blitAffine(p.t, { 0, 0, 16, 16 }, b.data(), 8, 8, 8 * 4, twice));
+    CHECK(red(p.at(5, 0)) == doctest::Approx(36).epsilon(0.1)); /* u = 2.75 - 0.5: between 32 and 48 */
+    CHECK(red(p.at(0, 0)) == 0); /* the edge is clamped */
+    CHECK(green(p.at(0, 15)) == 112);
+    /* a quarter turn about the corner: (u, v) goes to (-v, u), the bitmap lands left of the origin */
+    Pixels q(16, 16);
+    PixelAffine turn;
+    turn.ox = 8;
+    turn.oy = 0;
+    turn.ux = 0;
+    turn.uy = 1;
+    turn.vx = -1;
+    turn.vy = 0;
+    REQUIRE(blitAffine(q.t, { 0, 0, 16, 16 }, b.data(), 8, 8, 8 * 4, turn));
+    /* the picture's pixel (7, 2) is the bitmap's (u = 2, v = 0); (0, 2) is (2, 7) */
+    CHECK(red(q.at(7, 2)) == 32);
+    CHECK(green(q.at(7, 2)) == 0);
+    CHECK(red(q.at(0, 2)) == 32);
+    CHECK(green(q.at(0, 2)) == 112);
+    CHECK(q.at(9, 2) == 0xFF000000);
+    /* a map that squashes to a line draws nothing */
+    PixelAffine flat;
+    flat.vx = 2;
+    flat.vy = 0;
+    flat.ux = 1;
+    flat.uy = 0;
+    CHECK_FALSE(blitAffine(q.t, { 0, 0, 16, 16 }, b.data(), 8, 8, 8 * 4, flat));
+    CHECK_FALSE(blitAffine(q.t, { 0, 0, 16, 16 }, nullptr, 8, 8, 8 * 4, turn));
+    /* an empty clip: nothing to do, and nothing wrong */
+    CHECK(blitAffine(q.t, { 4, 4, 4, 9 }, b.data(), 8, 8, 8 * 4, turn));
+}
+
+TEST_CASE("pixel blit: rectangles and lines stay inside the clip and the picture")
+{
+    Pixels p(10, 10);
+    fillRect(p.t, { -5, 2, 4, 50 }, 0xFF112233);
+    CHECK(p.at(0, 2) == 0xFF112233);
+    CHECK(p.at(3, 9) == 0xFF112233);
+    CHECK(p.at(4, 9) == 0xFF000000);
+    CHECK(p.at(0, 1) == 0xFF000000);
+    fillRect(p.t, { 5, 5, 5, 8 }, 0xFFFFFFFF); /* empty */
+    CHECK(p.at(5, 5) == 0xFF000000);
+    Pixels q(10, 10);
+    drawLine(q.t, { 0, 0, 10, 10 }, 0.5f, 0.5f, 9.5f, 9.5f, 0xFFFFFFFF);
+    for (int i = 0; i < 10; i++) {
+        CHECK(q.at(i, i) == 0xFFFFFFFF);
+    }
+    CHECK(q.at(1, 0) == 0xFF000000);
+    /* clipped to a band; one that is very long or not a number draws nothing */
+    Pixels r(10, 10);
+    drawLine(r.t, { 0, 3, 10, 6 }, 4.5f, -20, 4.5f, 30, 0xFFFFFFFF);
+    CHECK(r.at(4, 2) == 0xFF000000);
+    CHECK(r.at(4, 3) == 0xFFFFFFFF);
+    CHECK(r.at(4, 5) == 0xFFFFFFFF);
+    CHECK(r.at(4, 6) == 0xFF000000);
+    drawLine(r.t, { 0, 0, 10, 10 }, 0, 0, 1e7f, 0, 0xFF00FF00);
+    drawLine(r.t, { 0, 0, 10, 10 }, std::nanf(""), 0, 5, 5, 0xFF00FF00);
+    CHECK(r.at(0, 0) == 0xFF000000);
+    CHECK(r.at(1, 1) == 0xFF000000);
 }

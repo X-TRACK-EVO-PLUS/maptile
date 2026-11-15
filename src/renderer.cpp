@@ -153,6 +153,7 @@ std::vector<MapRenderer::FrameTile> MapRenderer::collectTiles(const Camera& cam,
     const Matrix base = Matrix::translate(cam.anchor.x, cam.anchor.y) * Matrix::rotate(-cam.bearing);
     const Rect view { -pad, -pad, cam.viewW + pad, cam.viewH + pad };
     std::vector<FrameTile> tiles;
+    _pending.clear();
     int decodedNow = 0;
     int budget = opt.loadBudget;
     for (int ty = ty0; ty <= ty1 && tiles.size() < 96; ty++) {
@@ -161,14 +162,18 @@ std::vector<MapRenderer::FrameTile> MapRenderer::collectTiles(const Camera& cam,
                 * Matrix::scale((float)(S / n), (float)(S / n));
             if (!transformedBounds(m, 0, 0, 1, 1).intersects(view))
                 continue;
-            const bool cached = _store->cached(z, tx, ty);
+            std::shared_ptr<const MvtTile> tile;
+            const bool cached = _store->find(z, tx, ty, tile);
             if (!cached && ((budget > 0 && decodedNow >= budget) || opt.onlyCached)) {
                 _stats.tilesPending++;
+                _pending.push_back({ z, tx, ty });
                 continue;
             }
-            bool decoded = false;
-            auto tile = loadTile(z, tx, ty, decoded);
-            decodedNow += decoded;
+            if (!cached) {
+                bool decoded = false;
+                tile = loadTile(z, tx, ty, decoded);
+                decodedNow += decoded;
+            }
             if (!tile) {
                 _stats.tilesMissing++;
                 continue;
@@ -195,6 +200,15 @@ void MapRenderer::renderLabels(Canvas& canvas, const Camera& cam, const RenderOp
     const std::vector<FrameTile> tiles = collectTiles(cam, opt);
     drawLabels(canvas, tiles, cam, opt);
     canvas.endFrame();
+}
+std::vector<TileId> MapRenderer::uncachedTiles(const Camera& cam)
+{
+    RenderOptions opt;
+    opt.onlyCached = true;
+    const RenderStats stats = _stats;
+    collectTiles(cam, opt);
+    _stats = stats;
+    return _pending;
 }
 float MapRenderer::bitmapPixels(int level, float zoom)
 {

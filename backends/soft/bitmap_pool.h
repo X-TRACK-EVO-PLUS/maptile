@@ -31,17 +31,24 @@ bool drawTileBitmap(MapRenderer& renderer, TileBitmap& out);
  * the order of need; asking again replaces what has not been started. The renderers of the threads share one TileStore,
  * the style is a copy that is not changed while they read it.
  *
- * With no threads (tests) want() draws everything on the spot.
+ * With no threads (tests) want() draws everything on the spot. `nice` above 0 runs the threads that much lower than the
+ * one that made the pool (Linux; elsewhere it is ignored), so that a screen they draw for does not wait for them.
  */
 class BitmapPool {
 public:
+    /* A tile to draw; or, `decodeOnly`, the tile of the source at level, x, y to have read and decoded in the store (for the
+     * labels of a frame that does not wait), nothing to take */
     struct Job {
         int level, x, y;
         float zoom;
         int bleed;
-        bool operator==(const Job& o) const { return level == o.level && x == o.x && y == o.y && zoom == o.zoom && bleed == o.bleed; }
+        bool decodeOnly = false;
+        bool operator==(const Job& o) const
+        {
+            return level == o.level && x == o.x && y == o.y && zoom == o.zoom && bleed == o.bleed && decodeOnly == o.decodeOnly;
+        }
     };
-    BitmapPool(TileStore& store, int threads);
+    BitmapPool(TileStore& store, int threads, int nice = 0);
     ~BitmapPool();
     BitmapPool(const BitmapPool&) = delete;
     BitmapPool& operator=(const BitmapPool&) = delete;
@@ -68,6 +75,7 @@ private:
     std::shared_ptr<const Style> _style;
     uint32_t _generation = 1;
     bool _stop = false;
+    int _nice = 0;
     std::vector<std::thread> _threads;
 };
 } // namespace MapTile

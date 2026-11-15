@@ -98,7 +98,7 @@ namespace {
         }
         uint32_t n = batch.count();
         bool tiny = (maxX - minX) < minExtent && (maxY - minY) < minExtent;
-        if (n < (ring ? 3u : 2u) || (ring && tiny)) {
+        if (n < (ring ? 3u : 2u) || tiny) {
             batch.rollback();
             return false;
         }
@@ -226,7 +226,14 @@ void MapRenderer::drawLayer(Canvas& canvas, const StyleLayer& layer, const std::
     if (line && width < 0.2f)
         return;
 
-    const float tolSq = opt.simplify * opt.simplify;
+    /* The farther out, the less of a shape the eye tells, and the more of them there are on a screen: a screen of a
+     * hundred kilometres holds hundreds of thousands of vertices of road and coast at the tolerance of a street map, and
+     * the software rasteriser pays by the vertex. So the tolerance grows to two and a half times, and the bits of road
+     * that are shorter than a few pixels are left out. */
+    const float far = std::max(0.0f, std::min(1.5f, (13.0f - zoom) * 0.25f));
+    const float tol = opt.simplify * (1 + far);
+    const float tolSq = tol * tol;
+    const float lineMin = line && zoom < 12.0f ? 1.0f + far * 1.5f : 0.0f;
     const float cull = width + 2;
     const Rect view { -cull, -cull, cam.viewW + cull, cam.viewH + cull };
     _batch.clear();
@@ -251,7 +258,7 @@ void MapRenderer::drawLayer(Canvas& canvas, const StyleLayer& layer, const std::
             _stats.features++;
             const bool ring = f.type == MvtFeature::POLYGON;
             for (uint32_t p = f.part0; p < f.part0 + f.partN; p++)
-                emitPart(_batch, *ml, p, m, tolSq, ring, line ? 0.0f : 1.0f);
+                emitPart(_batch, *ml, p, m, tolSq, ring, line ? lineMin : 1.0f);
         }
     }
     if (_batch.empty())

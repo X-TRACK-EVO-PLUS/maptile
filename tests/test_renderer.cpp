@@ -226,3 +226,50 @@ TEST_CASE("SvgCanvas: well-formed output")
     CHECK(s.find("<text") != std::string::npos);
     CHECK(s.size() > 5000);
 }
+TEST_CASE("MapRenderer: a tile as a bitmap, its size follows the zoom, the labels come apart from it")
+{
+    Fixture fx;
+    if (!fx.ok) {
+        MESSAGE("fixture needs sqlite3, skipping");
+        return;
+    }
+    MapRenderer r(fx.source, fx.style);
+    const WorldPos w = lonLatToWorld(116.3895, 39.9225);
+    CHECK(MapRenderer::bitmapPixels(14, 14) == doctest::Approx(256));
+    CHECK(MapRenderer::bitmapPixels(14, 14.5f) == doctest::Approx(256 * 1.41421356f).epsilon(1e-5));
+    CHECK(MapRenderer::bitmapPixels(14, 13.5f) == doctest::Approx(256 / 1.41421356f).epsilon(1e-5));
+    /* a tile of the source: drawn, with the bleed around it, and no text */
+    const int x14 = (int)(w.x * (1 << 14)), y14 = (int)(w.y * (1 << 14));
+    Recorder tile;
+    REQUIRE(r.drawBitmapTile(tile, 14, x14, y14, 14.5f, 2));
+    CHECK(tile.frames == 1);
+    CHECK(tile.width == (float)((int)std::ceil(256 * 1.41421356f) + 4));
+    CHECK(tile.width == tile.height);
+    CHECK(tile.fills + tile.strokes > 0);
+    CHECK(tile.texts == 0);
+    /* overzoomed: a part of the last tile of the source, drawn larger; a quarter of it holds fewer shapes than all of it */
+    Recorder whole, part;
+    REQUIRE(r.drawBitmapTile(whole, 14, x14, y14, 14, 0));
+    REQUIRE(r.drawBitmapTile(part, 16, x14 * 4 + 1, y14 * 4 + 1, 16, 0));
+    CHECK(part.width == 256);
+    CHECK(part.fills + part.strokes > 0);
+    CHECK(part.vertices < whole.vertices * 4);
+    /* nothing there: just the background */
+    Recorder empty;
+    REQUIRE(r.drawBitmapTile(empty, 14, 0, 0, 14, 0));
+    CHECK(empty.frames == 1);
+    CHECK(empty.fills + empty.strokes == 0);
+    /* out of range: refused, and nothing is drawn */
+    Recorder none;
+    CHECK_FALSE(r.drawBitmapTile(none, 2, 0, 0, 14, 0));
+    CHECK_FALSE(r.drawBitmapTile(none, 23, 0, 0, 14, 0));
+    CHECK_FALSE(r.drawBitmapTile(none, 14, -1, 0, 14, 0));
+    CHECK_FALSE(r.drawBitmapTile(none, 14, 1 << 14, 0, 14, 0));
+    CHECK(none.frames == 0);
+    /* the labels alone: text, and no shapes */
+    Recorder labels;
+    r.renderLabels(labels, fx.camera(16));
+    CHECK(labels.texts > 0);
+    CHECK(labels.fills + labels.strokes == 0);
+    CHECK(labels.frames == 0);
+}

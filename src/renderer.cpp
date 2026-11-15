@@ -150,15 +150,11 @@ std::shared_ptr<const MvtTile> MapRenderer::loadTile(int z, int x, int y, bool& 
     return tile;
 }
 
-void MapRenderer::render(Canvas& canvas, const Camera& cam, const RenderOptions& opt)
+std::vector<MapRenderer::FrameTile> MapRenderer::collectTiles(const Camera& cam, const RenderOptions& opt)
 {
-    _stats = RenderStats();
-    canvas.beginFrame(cam.viewW, cam.viewH, _style.background());
-
     int z = tileLevel(cam.zoom);
     _stats.tileZoom = z;
     const double n = std::exp2((double)z);
-
     /* tile range covering the (rotated) viewport */
     const float pad = 24;
     Vec2 corners[4] = { { -pad, -pad }, { cam.viewW + pad, -pad }, { cam.viewW + pad, cam.viewH + pad },
@@ -173,11 +169,9 @@ void MapRenderer::render(Canvas& canvas, const Camera& cam, const RenderOptions&
     }
     int tx0 = std::max(0, (int)std::floor(minX * n)), tx1 = std::min((int)n - 1, (int)std::floor(maxX * n));
     int ty0 = std::max(0, (int)std::floor(minY * n)), ty1 = std::min((int)n - 1, (int)std::floor(maxY * n));
-
     const double S = cam.worldToPixel();
     const Matrix base = Matrix::translate(cam.anchor.x, cam.anchor.y) * Matrix::rotate(-cam.bearing);
     const Rect view { -pad, -pad, cam.viewW + pad, cam.viewH + pad };
-
     std::vector<FrameTile> tiles;
     int decodedNow = 0;
     int budget = opt.loadBudget;
@@ -203,14 +197,56 @@ void MapRenderer::render(Canvas& canvas, const Camera& cam, const RenderOptions&
             tiles.push_back({ tx, ty, tile, m });
         }
     }
-
+    return tiles;
+}
+void MapRenderer::render(Canvas& canvas, const Camera& cam, const RenderOptions& opt)
+{
+    _stats = RenderStats();
+    canvas.beginFrame(cam.viewW, cam.viewH, _style.background());
+    const std::vector<FrameTile> tiles = collectTiles(cam, opt);
     for (const StyleLayer& layer : _style.layers())
         drawLayer(canvas, layer, tiles, cam, opt);
     if (opt.labels)
         drawLabels(canvas, tiles, cam, opt);
     canvas.endFrame();
 }
-
+void MapRenderer::renderLabels(Canvas& canvas, const Camera& cam, const RenderOptions& opt)
+{
+    const std::vector<FrameTile> tiles = collectTiles(cam, opt);
+    drawLabels(canvas, tiles, cam, opt);
+    canvas.endFrame();
+}
+float MapRenderer::bitmapPixels(int level, float zoom)
+{
+    return (float)(256.0 * std::exp2((double)zoom - (double)level));
+}
+bool MapRenderer::drawBitmapTile(Canvas& canvas, int level, int x, int y, float zoom, int bleed, const RenderOptions& opt)
+{
+    if (level < _source.minZoom() || level > 22 || x < 0 || y < 0 || x >= (1 << std::min(level, 30)) || y >= (1 << std::min(level, 30)))
+        return false;
+    /* the tile of the source that holds it: at the source's last level it is a part of a tile, drawn larger */
+    const int zs = std::min(level, _source.maxZoom());
+    const int d = level - zs;
+    const int sx = x >> d, sy = y >> d;
+    const double px = (double)bitmapPixels(level, zoom);
+    const int size = (int)std::ceil(px) + 2 * bleed;
+    bool decoded = false;
+    const std::shared_ptr<const MvtTile> tile = loadTile(zs, sx, sy, decoded);
+    canvas.beginFrame((float)size, (float)size, _style.background());
+    if (tile) {
+        const double ox = (double)(x - (sx << d)) * px, oy = (double)(y - (sy << d)) * px;
+        const float scale = (float)(px * (double)(1 << d));
+        std::vector<FrameTile> tiles;
+        tiles.push_back({ sx, sy, tile, Matrix::translate((float)(bleed - ox), (float)(bleed - oy)) * Matrix::scale(scale, scale) });
+        Camera cam;
+        cam.zoom = zoom;
+        cam.viewW = cam.viewH = (float)size;
+        for (const StyleLayer& layer : _style.layers())
+            drawLayer(canvas, layer, tiles, cam, opt);
+    }
+    canvas.endFrame();
+    return true;
+}
 void MapRenderer::drawLayer(Canvas& canvas, const StyleLayer& layer, const std::vector<FrameTile>& tiles,
     const Camera& cam, const RenderOptions& opt)
 {

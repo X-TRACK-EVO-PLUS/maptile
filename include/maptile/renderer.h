@@ -55,6 +55,18 @@ public:
     int tileLevel(float zoom) const;
 
     void render(Canvas& canvas, const Camera& camera, const RenderOptions& options = RenderOptions());
+    /* Only the labels of the tiles the camera sees, over what the canvas has already: for a map whose tiles are
+     * drawn as bitmaps (drawBitmapTile) and kept, labels being the part that has to be laid out again for every
+     * frame, since where they go depends on what else is in the view */
+    void renderLabels(Canvas& canvas, const Camera& camera, const RenderOptions& options = RenderOptions());
+    /* One tile of the grid of `level` (not above 22; the source's last level is drawn larger) as a bitmap, without
+     * labels: `zoom` is the zoom it is drawn for, which sets its size, bitmapPixels(level, zoom) pixels across the tile,
+     * and `bleed` pixels more are drawn on each side, so that the bitmaps of neighbours overlap. The canvas is
+     * bitmapPixels rounded up plus twice the bleed, square. False if `level` is out of range (nothing drawn); a tile
+     * the source does not have is the background. */
+    bool drawBitmapTile(Canvas& canvas, int level, int x, int y, float zoom, int bleed, const RenderOptions& options = RenderOptions());
+    static float bitmapPixels(int level, float zoom);
+    void resetStats() { _stats = RenderStats(); }
     const RenderStats& stats() const { return _stats; }
 
 private:
@@ -69,6 +81,7 @@ private:
     };
 
     std::shared_ptr<const MvtTile> loadTile(int z, int x, int y, bool& decoded);
+    std::vector<FrameTile> collectTiles(const Camera& camera, const RenderOptions& options);
     void drawLayer(Canvas& canvas, const StyleLayer& layer, const std::vector<FrameTile>& tiles, const Camera& cam,
         const RenderOptions& opt);
     void drawLabels(Canvas& canvas, const std::vector<FrameTile>& tiles, const Camera& cam, const RenderOptions& opt);

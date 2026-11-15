@@ -78,8 +78,10 @@ if(MAPTILE_BUILD_SVG)
 endif()
 
 if(MAPTILE_BUILD_SOFT)
-  add_library(maptile_soft STATIC backends/soft/soft_canvas.cpp
-                                  backends/soft/bitmap_pool.cpp)
+  add_library(
+    maptile_soft STATIC
+    backends/soft/soft_canvas.cpp backends/soft/bitmap_pool.cpp
+    backends/soft/pixel_blit.cpp)
   target_include_directories(maptile_soft
                              PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/backends/soft)
   target_link_libraries(maptile_soft PUBLIC maptile)

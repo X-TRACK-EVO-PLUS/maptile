@@ -66,6 +66,7 @@ python3 tools/fetch_region.py --id beijing --name 北京市区 --bbbike Beijing 
 | --- | --- | --- |
 | SVG | `backends/svg` | 单元测试、命令行 `maptile-svg`、给设计稿生成真实地图 |
 | LVGL 9.6 | `backends/lvgl` | 设备。用 `lv_draw_vector`（ThorVG），字体由应用提供 |
+| 软件 | `backends/soft` | 自己的光栅化器（纯色多边形和折线，不画文字），没有任何全局状态，每个线程一个实例；`BitmapPool` 用几个线程把瓦片画成位图，`TileStore` 让它们共用解码后的瓦片。`tools/bench_tile` 量一块瓦片的时间 |
 
 自己写后端只需实现 `Canvas` 的 6 个函数：`beginFrame`、`fill`、`stroke`、`measureText`、`drawText`、`endFrame`。
 坐标都是屏幕像素，一批路径一次交给后端。
@@ -108,6 +109,8 @@ cmake -S . -B build -G Ninja -DMAPTILE_WERROR=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+提交前的格式检查：`tools/install-hooks.sh` 装上 `.githooks/pre-commit`，它用 `.clang-format`（WebKit）检查暂存的 C/C++ 文件，不过的话用 `tools/code_format.sh --staged && git add -u` 改好。CI 跑 `tools/code_format.sh --check`。
 
 依赖：C++14 编译器；zlib、sqlite3 可选（`-DMAPTILE_WITH_ZLIB=OFF` / `-DMAPTILE_WITH_SQLITE=OFF` 关掉）。
 作为子项目引入时只构建核心库 `maptile::maptile`。

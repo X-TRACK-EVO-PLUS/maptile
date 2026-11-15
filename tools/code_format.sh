@@ -56,6 +56,46 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# Staged-file modes (used by the git hook)
+#   --check-staged  check the staged content of the C/C++ files, exit 1 on a difference
+#   --staged        format the C/C++ files that have staged changes, in place (git add them again afterwards)
+if [[ "$1" == "--check-staged" || "$1" == "--staged" ]]; then
+    REPO_ROOT="$(git -C "$PROJECT_ROOT" rev-parse --show-toplevel)"
+    in_scope() {
+        local abs="$REPO_ROOT/$1" dir
+        [[ "$1" =~ \.(c|cpp|h|hpp)$ ]] || return 1
+        [[ "$1" == */doctest.h ]] && return 1
+        for dir in "${FORMAT_DIRS[@]}"; do
+            [[ "$abs" == "$dir"/* ]] && return 0
+        done
+        return 1
+    }
+    mapfile -t STAGED < <(git -C "$REPO_ROOT" diff --cached --name-only --diff-filter=ACM)
+    BAD=()
+    for rel in "${STAGED[@]}"; do
+        in_scope "$rel" || continue
+        if [[ "$1" == "--staged" ]]; then
+            $CLANG_FORMAT -i "$REPO_ROOT/$rel"
+            echo "formatted: $rel"
+        elif ! diff -q <(git -C "$REPO_ROOT" show ":$rel" | $CLANG_FORMAT --assume-filename="$REPO_ROOT/$rel") \
+            <(git -C "$REPO_ROOT" show ":$rel") >/dev/null; then
+            BAD+=("$rel")
+        fi
+    done
+    if [[ ${#BAD[@]} -gt 0 ]]; then
+        echo "format check failed (clang-format, WebKit style) for staged files:" >&2
+        for rel in "${BAD[@]}"; do
+            echo "  $rel" >&2
+            diff -u <(git -C "$REPO_ROOT" show ":$rel") \
+                <(git -C "$REPO_ROOT" show ":$rel" | $CLANG_FORMAT --assume-filename="$REPO_ROOT/$rel") |
+                sed -e '1,2d' -e 's/^/    /' | head -n 20 >&2 || true
+        done
+        echo "" >&2
+        echo "fix with: tools/code_format.sh --staged && git add -u" >&2
+        exit 1
+    fi
+    exit 0
+fi
 echo "========================================="
 echo "maptile Code Formatter"
 echo "========================================="

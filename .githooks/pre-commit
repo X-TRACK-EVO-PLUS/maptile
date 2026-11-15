@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# pre-commit hook: staged C/C++ files must be clang-format clean (WebKit style, the .clang-format of the repository).
+#
+# Only the staged content is checked, so legacy files you do not touch never block a commit. Fix with:
+#   tools/code_format.sh --staged && git add -u
+#
+# Install with: tools/install-hooks.sh  (sets core.hooksPath to .githooks)
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT="$ROOT/tools/code_format.sh"
+# Nothing C/C++ staged: skip quickly.
+if ! git diff --cached --name-only --diff-filter=ACM | grep -qE '\.(c|cpp|h|hpp)$'; then
+    exit 0
+fi
+# A missing formatter must not make every commit impossible; CI still checks.
+if ! command -v clang-format-14 >/dev/null 2>&1 && ! command -v clang-format >/dev/null 2>&1; then
+    echo "pre-commit: clang-format not installed, skipping format check (sudo apt install clang-format-14)" >&2
+    exit 0
+fi
+exec bash "$SCRIPT" --check-staged

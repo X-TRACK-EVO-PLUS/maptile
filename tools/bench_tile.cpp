@@ -34,16 +34,25 @@ int main(int argc, char** argv)
     for (int i = 1; i + 1 < argc; i += 2) {
         std::string a = argv[i];
         const char* v = argv[i + 1];
-        if (a == "--mbtiles") mb = v;
-        else if (a == "--style") style = v;
-        else if (a == "--lon") lon = atof(v);
-        else if (a == "--lat") lat = atof(v);
-        else if (a == "--level") level = atoi(v);
-        else if (a == "--zoom") zoom = (float)atof(v);
-        else if (a == "--n") n = atoi(v);
-        else if (a == "--out") out = v;
+        if (a == "--mbtiles")
+            mb = v;
+        else if (a == "--style")
+            style = v;
+        else if (a == "--lon")
+            lon = atof(v);
+        else if (a == "--lat")
+            lat = atof(v);
+        else if (a == "--level")
+            level = atoi(v);
+        else if (a == "--zoom")
+            zoom = (float)atof(v);
+        else if (a == "--n")
+            n = atoi(v);
+        else if (a == "--out")
+            out = v;
     }
-    if (zoom < 0) zoom = (float)level;
+    if (zoom < 0)
+        zoom = (float)level;
     MBTilesSource src;
     Style st;
     if (!src.open(mb.c_str()) || !st.loadFile(style.c_str())) {

@@ -30,7 +30,8 @@ private:
         int z, x, y;
         bool operator<(const Key& o) const
         {
-            return z != o.z ? z < o.z : x != o.x ? x < o.x : y < o.y;
+            return z != o.z ? z < o.z : x != o.x ? x < o.x
+                                                 : y < o.y;
         }
     };
     std::map<Key, bool> _has;

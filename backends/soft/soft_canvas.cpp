@@ -269,7 +269,8 @@ void SoftCanvas::quad(Vec2 a, Vec2 b, float h)
 /* A disc wound as quad() is */
 void SoftCanvas::disc(Vec2 c, float r)
 {
-    const int n = r < 1.5f ? 6 : r < 3 ? 8 : 12;
+    const int n = r < 1.5f ? 6 : r < 3 ? 8
+                                       : 12;
     Vec2 p[12];
     for (int i = 0; i < n; i++) {
         const float t = -TWO_PI * (float)i / (float)n;

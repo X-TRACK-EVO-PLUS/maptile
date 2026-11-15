@@ -9,8 +9,7 @@
 #include "maptile/mvt.h"
 #include "maptile/style.h"
 #include "maptile/tile_source.h"
-#include <list>
-#include <map>
+#include "maptile/tile_store.h"
 #include <memory>
 
 namespace MapTile {
@@ -26,6 +25,9 @@ struct RenderOptions {
      * again on the next frame instead of stalling this one. */
     int loadBudget = 0;
     bool labels = true;
+    /* Do not read and decode a tile that is not in the store: it is left out and counted in RenderStats::tilesPending.
+     * For a frame that must not wait (another thread is decoding what it needs). */
+    bool onlyCached = false;
 };
 
 struct RenderStats {
@@ -47,10 +49,13 @@ struct RenderStats {
  */
 class MapRenderer {
 public:
-    MapRenderer(TileSource& source, Style& style);
-
-    void setTileCacheLimit(size_t tiles) { _limit = tiles; }
-    void clearCache();
+    /* A renderer with the decoded tiles of its own */
+    MapRenderer(TileSource& source, const Style& style);
+    /* A renderer that shares the decoded tiles of `store` with others, on other threads too. Each thread has a renderer of
+     * its own: one renderer is not for two threads. */
+    MapRenderer(TileStore& store, const Style& style);
+    void setTileCacheLimit(size_t tiles) { _store->setLimit(tiles); }
+    void clearCache() { _store->clear(); }
     /* The tile level used for a zoom: nearest integer, kept inside the source's range */
     int tileLevel(float zoom) const;
 
@@ -75,10 +80,6 @@ private:
         std::shared_ptr<const MvtTile> tile;
         Matrix toScreen; /* tile units -> screen pixels */
     };
-    struct CacheEntry {
-        std::shared_ptr<const MvtTile> tile; /* null: not available */
-        std::list<uint64_t>::iterator lru;
-    };
 
     std::shared_ptr<const MvtTile> loadTile(int z, int x, int y, bool& decoded);
     std::vector<FrameTile> collectTiles(const Camera& camera, const RenderOptions& options);
@@ -86,12 +87,9 @@ private:
         const RenderOptions& opt);
     void drawLabels(Canvas& canvas, const std::vector<FrameTile>& tiles, const Camera& cam, const RenderOptions& opt);
 
-    TileSource& _source;
-    Style& _style;
-    size_t _limit = 48;
-    std::map<uint64_t, CacheEntry> _cache;
-    std::list<uint64_t> _lru;
-    std::vector<uint8_t> _scratch;
+    std::unique_ptr<TileStore> _own;
+    TileStore* _store;
+    const Style& _style;
     RenderStats _stats;
     PathBatch _batch;
 };

@@ -22,7 +22,8 @@ option(MAPTILE_BUILD_SVG "Build the SVG backend and the maptile-svg tool"
 option(MAPTILE_BUILD_LVGL
        "Build the LVGL backend (needs an lvgl target from the parent project)"
        OFF)
-option(MAPTILE_BUILD_SOFT "Build the software canvas (no dependencies) and its bench_tile tool" ON)
+option(MAPTILE_BUILD_SOFT
+       "Build the software canvas (no dependencies) and its bench_tile tool" ON)
 option(MAPTILE_BUILD_TESTS "Build the unit tests" ${MAPTILE_TOP_LEVEL})
 option(MAPTILE_WERROR "Treat warnings as errors" OFF)
 
@@ -35,15 +36,18 @@ add_library(
   src/renderer.cpp
   src/style.cpp
   src/tile_source.cpp
+  src/tile_store.cpp
   src/gcj02.c
   src/routing_graph.cpp
   src/router.cpp)
 add_library(maptile::maptile ALIAS maptile)
+find_package(Threads REQUIRED)
 target_include_directories(
   maptile PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_compile_options(maptile PRIVATE -Wall -Wextra
                                        $<$<BOOL:${MAPTILE_WERROR}>:-Werror>)
 set_target_properties(maptile PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(maptile PUBLIC Threads::Threads)
 
 if(MAPTILE_WITH_ZLIB)
   find_package(ZLIB)
@@ -74,12 +78,13 @@ if(MAPTILE_BUILD_SVG)
 endif()
 
 if(MAPTILE_BUILD_SOFT)
-  add_library(maptile_soft STATIC backends/soft/soft_canvas.cpp)
+  add_library(maptile_soft STATIC backends/soft/soft_canvas.cpp
+                                  backends/soft/bitmap_pool.cpp)
   target_include_directories(maptile_soft
                              PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/backends/soft)
   target_link_libraries(maptile_soft PUBLIC maptile)
-  target_compile_options(maptile_soft PRIVATE -Wall -Wextra -O3
-                                              $<$<BOOL:${MAPTILE_WERROR}>:-Werror>)
+  target_compile_options(
+    maptile_soft PRIVATE -Wall -Wextra -O3 $<$<BOOL:${MAPTILE_WERROR}>:-Werror>)
   set_target_properties(maptile_soft PROPERTIES POSITION_INDEPENDENT_CODE ON)
   add_executable(bench_tile tools/bench_tile.cpp)
   target_link_libraries(bench_tile PRIVATE maptile_soft)

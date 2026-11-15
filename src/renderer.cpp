@@ -108,48 +108,28 @@ namespace {
 
 } // namespace
 
-MapRenderer::MapRenderer(TileSource& source, Style& style)
-    : _source(source)
+MapRenderer::MapRenderer(TileSource& source, const Style& style)
+    : _own(new TileStore(source))
+    , _store(_own.get())
     , _style(style)
 {
 }
-
-void MapRenderer::clearCache()
+MapRenderer::MapRenderer(TileStore& store, const Style& style)
+    : _store(&store)
+    , _style(style)
 {
-    _cache.clear();
-    _lru.clear();
 }
 
 int MapRenderer::tileLevel(float zoom) const
 {
     int z = (int)std::floor(zoom + 0.5f);
-    return std::max(_source.minZoom(), std::min(_source.maxZoom(), z));
+    return std::max(_store->minZoom(), std::min(_store->maxZoom(), z));
 }
 
 std::shared_ptr<const MvtTile> MapRenderer::loadTile(int z, int x, int y, bool& decoded)
 {
-    uint64_t key = tileKey(z, x, y);
-    auto it = _cache.find(key);
-    if (it != _cache.end()) {
-        _lru.splice(_lru.begin(), _lru, it->second.lru);
-        return it->second.tile;
-    }
-    decoded = true;
-    std::shared_ptr<MvtTile> tile;
-    if (_source.getTile(z, x, y, _scratch)) {
-        tile = std::make_shared<MvtTile>();
-        if (!decodeMvt(_scratch.data(), _scratch.size(), *tile) && tile->layers.empty())
-            tile.reset();
-    }
-    _lru.push_front(key);
-    _cache[key] = { tile, _lru.begin() };
-    while (_cache.size() > _limit && _lru.size() > 1) {
-        _cache.erase(_lru.back());
-        _lru.pop_back();
-    }
-    return tile;
+    return _store->get(z, x, y, &decoded);
 }
-
 std::vector<MapRenderer::FrameTile> MapRenderer::collectTiles(const Camera& cam, const RenderOptions& opt)
 {
     int z = tileLevel(cam.zoom);
@@ -181,8 +161,8 @@ std::vector<MapRenderer::FrameTile> MapRenderer::collectTiles(const Camera& cam,
                 * Matrix::scale((float)(S / n), (float)(S / n));
             if (!transformedBounds(m, 0, 0, 1, 1).intersects(view))
                 continue;
-            bool cached = _cache.count(tileKey(z, tx, ty)) != 0;
-            if (!cached && budget > 0 && decodedNow >= budget) {
+            const bool cached = _store->cached(z, tx, ty);
+            if (!cached && ((budget > 0 && decodedNow >= budget) || opt.onlyCached)) {
                 _stats.tilesPending++;
                 continue;
             }
@@ -222,10 +202,10 @@ float MapRenderer::bitmapPixels(int level, float zoom)
 }
 bool MapRenderer::drawBitmapTile(Canvas& canvas, int level, int x, int y, float zoom, int bleed, const RenderOptions& opt)
 {
-    if (level < _source.minZoom() || level > 22 || x < 0 || y < 0 || x >= (1 << std::min(level, 30)) || y >= (1 << std::min(level, 30)))
+    if (level < _store->minZoom() || level > 22 || x < 0 || y < 0 || x >= (1 << std::min(level, 30)) || y >= (1 << std::min(level, 30)))
         return false;
     /* the tile of the source that holds it: at the source's last level it is a part of a tile, drawn larger */
-    const int zs = std::min(level, _source.maxZoom());
+    const int zs = std::min(level, _store->maxZoom());
     const int d = level - zs;
     const int sx = x >> d, sy = y >> d;
     const double px = (double)bitmapPixels(level, zoom);

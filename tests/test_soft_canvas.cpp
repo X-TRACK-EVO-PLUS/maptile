@@ -2,6 +2,7 @@
 #include "soft_canvas.h"
 #include "test_common.h"
 #include <cmath>
+#include <cstring>
 #include <thread>
 #include <vector>
 using namespace MapTile;
@@ -245,4 +246,148 @@ TEST_CASE("SoftCanvas: a tile of the test data is drawn, with the colours of the
     Picture q(size, size);
     REQUIRE(r.drawBitmapTile(q.canvas, 15, x, y, 15, 2, opt));
     CHECK(q.px == p.px);
+}
+#include "bitmap_pool.h"
+#include <atomic>
+#include <chrono>
+namespace {
+struct PoolFixture {
+    MBTilesSource source;
+    Style style;
+    bool ok = false;
+    PoolFixture() { ok = MBTilesSource::available() && source.open("tests/data/beijing-mini.mbtiles") && style.loadFile("tests/data/style-light.json"); }
+    std::vector<BitmapPool::Job> jobs(int level, int n, float zoom) const
+    {
+        const WorldPos w = lonLatToWorld(116.3895, 39.9225);
+        const int x = (int)(w.x * (1 << level)), y = (int)(w.y * (1 << level));
+        std::vector<BitmapPool::Job> out;
+        for (int i = 0; i < n; i++) {
+            out.push_back({ level, x + (i % 3) - 1, y + (i / 3) - 1, zoom, 2 });
+        }
+        return out;
+    }
+};
+bool waitFor(BitmapPool& pool, int ms = 8000)
+{
+    for (int i = 0; i < ms && pool.busy(); i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return !pool.busy();
+}
+} // namespace
+TEST_CASE("BitmapPool: with no threads the tiles are drawn at once, and are what drawing them directly gives")
+{
+    PoolFixture fx;
+    if (!fx.ok) {
+        MESSAGE("fixture needs sqlite3, skipping");
+        return;
+    }
+    TileStore store(fx.source);
+    BitmapPool pool(store, 0);
+    pool.want({}); /* no style yet: nothing */
+    pool.setStyle(fx.style);
+    const auto jobs = fx.jobs(15, 4, 15.3f);
+    pool.want(jobs);
+    CHECK_FALSE(pool.busy());
+    std::vector<TileBitmap> got = pool.take();
+    REQUIRE(got.size() == 4);
+    CHECK(pool.take().empty());
+    MapRenderer direct(store, fx.style);
+    for (size_t i = 0; i < got.size(); i++) {
+        TileBitmap b;
+        b.level = jobs[i].level;
+        b.x = jobs[i].x;
+        b.y = jobs[i].y;
+        b.zoom = jobs[i].zoom;
+        b.bleed = jobs[i].bleed;
+        REQUIRE(drawTileBitmap(direct, b));
+        CHECK(got[i].size == b.size);
+        CHECK(got[i].pixels == doctest::Approx(256 * std::pow(2.0f, 0.3f)));
+        CHECK(std::memcmp(got[i].data.get(), b.data.get(), (size_t)b.size * b.size * 4) == 0);
+    }
+    /* out of range: nothing comes of it */
+    pool.want({ { 30, 0, 0, 14, 0 } });
+    CHECK(pool.take().empty());
+}
+TEST_CASE("BitmapPool: threads draw the same tiles, asking again drops what was not started, a new style drops them all")
+{
+    PoolFixture fx;
+    if (!fx.ok) {
+        MESSAGE("fixture needs sqlite3, skipping");
+        return;
+    }
+    TileStore store(fx.source);
+    BitmapPool inline0(store, 0);
+    inline0.setStyle(fx.style);
+    const auto jobs = fx.jobs(16, 9, 16);
+    inline0.want(jobs);
+    std::vector<TileBitmap> want = inline0.take();
+    REQUIRE(want.size() == 9);
+    BitmapPool pool(store, 3);
+    CHECK(pool.threads() == 3);
+    pool.setStyle(fx.style);
+    pool.want(jobs);
+    REQUIRE(waitFor(pool));
+    std::vector<TileBitmap> got = pool.take();
+    REQUIRE(got.size() == 9);
+    for (const TileBitmap& g : got) {
+        bool found = false;
+        for (const TileBitmap& w : want) {
+            if (w.x == g.x && w.y == g.y) {
+                found = true;
+                CHECK(std::memcmp(g.data.get(), w.data.get(), (size_t)w.size * w.size * 4) == 0);
+            }
+        }
+        CHECK(found);
+    }
+    /* one thread, a long list, and then a new one: the first list is not all drawn */
+    BitmapPool one(store, 1);
+    one.setStyle(fx.style);
+    std::vector<BitmapPool::Job> many;
+    for (int i = 0; i < 60; i++) {
+        many.push_back({ 16, 100000 + i, 50000, 16, 2 }); /* tiles the data has not: quick, but there are many */
+    }
+    one.want(many);
+    one.want(fx.jobs(16, 2, 16));
+    REQUIRE(waitFor(one));
+    CHECK(one.take().size() <= 2 + 3);
+    /* a new style: what was done is gone */
+    BitmapPool styled(store, 2);
+    styled.setStyle(fx.style);
+    styled.want(jobs);
+    REQUIRE(waitFor(styled));
+    styled.setStyle(fx.style);
+    CHECK(styled.take().empty());
+}
+TEST_CASE("TileStore: threads that want one tile decode it once, and everyone gets it")
+{
+    PoolFixture fx;
+    if (!fx.ok) {
+        MESSAGE("fixture needs sqlite3, skipping");
+        return;
+    }
+    TileStore store(fx.source);
+    const WorldPos w = lonLatToWorld(116.3895, 39.9225);
+    const int x = (int)(w.x * (1 << 14)), y = (int)(w.y * (1 << 14));
+    std::atomic<int> decoded { 0 }, have { 0 };
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 6; i++) {
+        threads.emplace_back([&] {
+            bool d = false;
+            auto t = store.get(14, x, y, &d);
+            decoded += d;
+            have += t != nullptr;
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+    CHECK(decoded == 1);
+    CHECK(have == 6);
+    CHECK(store.cached(14, x, y));
+    CHECK_FALSE(store.cached(14, x + 1000, y));
+    store.setLimit(0);
+    CHECK(store.size() <= 1);
+    store.clear();
+    CHECK(store.size() == 0);
 }

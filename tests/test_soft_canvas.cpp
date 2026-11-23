@@ -252,6 +252,8 @@ TEST_CASE("SoftCanvas: a tile of the test data is drawn, with the colours of the
 #include "bitmap_pool.h"
 #include <atomic>
 #include <chrono>
+#include <future>
+#include <new>
 namespace {
 struct PoolFixture {
     MBTilesSource source;
@@ -392,6 +394,37 @@ TEST_CASE("TileStore: threads that want one tile decode it once, and everyone ge
     CHECK(store.size() <= 1);
     store.clear();
     CHECK(store.size() == 0);
+}
+namespace {
+/* A source that throws, as one does when it runs out of memory or its file is damaged, after a pause in which another thread asks
+ * for the same tile */
+struct ThrowingSource : TileSource {
+    std::atomic<int> calls { 0 };
+    bool getTile(int, int, int, std::vector<uint8_t>&) override
+    {
+        if (calls++ == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(80));
+            throw std::bad_alloc();
+        }
+        return false; /* the tile is not there */
+    }
+};
+} // namespace
+TEST_CASE("TileStore: a source that throws leaves no tile loading, so the thread that waits for it does not wait for ever")
+{
+    ThrowingSource source;
+    TileStore store(source);
+    auto first = std::async(std::launch::async, [&] { return store.get(10, 1, 2); });
+    while (source.calls == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    /* this one finds the tile loading and waits for the first */
+    auto second = std::async(std::launch::async, [&] { return store.get(10, 1, 2); });
+    REQUIRE(first.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    REQUIRE(second.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    CHECK_FALSE(bool(first.get())); /* doctest cannot print a shared_ptr */
+    CHECK_FALSE(bool(second.get()));
+    CHECK(source.calls == 2); /* nothing was kept of the failure: the second asked the source again */
 }
 TEST_CASE("TileStore: find answers from what is kept and reads nothing; decode-only jobs fill it")
 {

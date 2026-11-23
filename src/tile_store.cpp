@@ -71,7 +71,7 @@ std::shared_ptr<const MvtTile> TileStore::get(int z, int x, int y, bool* decoded
         _loading.insert(key);
     }
     std::shared_ptr<MvtTile> tile;
-    {
+    try {
         std::vector<uint8_t> bytes;
         bool got;
         {
@@ -84,6 +84,13 @@ std::shared_ptr<const MvtTile> TileStore::get(int z, int x, int y, bool* decoded
                 tile.reset();
             }
         }
+    } catch (...) {
+        /* The source or the decoder threw (out of memory, a damaged file). The key must not stay in _loading: the threads that wait
+         * for this tile would wait for ever. Nothing is kept for it, so that a later frame asks again; this one has no tile. */
+        std::lock_guard<std::mutex> lock(_mutex);
+        _loading.erase(key);
+        _loaded.notify_all();
+        return nullptr;
     }
     if (decoded) {
         *decoded = true;

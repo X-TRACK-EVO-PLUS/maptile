@@ -239,10 +239,41 @@ TEST_CASE("Router stops with TooLong when the state table would pass its budget"
     router.setDataPath(ROUTING_PATH);
     router.setCacheSize(8);
     router.setMaxStateBytes(64 * 1024); // below the first table
-    RouteResult r = router.findRoute({ 116.30, 39.80 }, { 116.45, 40.00 });
+    RouteResult r = router.findRoute({ 116.35, 39.85 }, { 116.42, 39.92 });
     CHECK(r.found == false);
     CHECK(r.status == RouteStatus::TooLong);
     router.setMaxStateBytes(0);
-    r = router.findRoute({ 116.30, 39.80 }, { 116.45, 40.00 });
-    CHECK(r.status != RouteStatus::TooLong);
+    r = router.findRoute({ 116.35, 39.85 }, { 116.42, 39.92 });
+    CHECK(r.status == RouteStatus::Found);
+}
+
+TEST_CASE("Router stops when the cancel check says so")
+{
+    Router router;
+    router.setDataPath(ROUTING_PATH);
+    router.setCacheSize(8);
+    int asked = 0;
+    router.setCancelCheck(
+        [](void* n) {
+            ++*(int*)n;
+            return true;
+        },
+        &asked);
+    RouteResult r = router.findRoute({ 116.35, 39.85 }, { 116.42, 39.92 });
+    CHECK(r.found == false);
+    CHECK(r.status == RouteStatus::Cancelled);
+    CHECK(r.iterations == 1024);
+    CHECK(asked == 1);
+}
+
+TEST_CASE("Router stops with TooLong when the table fills up during the search")
+{
+    Router router;
+    router.setDataPath(ROUTING_PATH);
+    router.setCacheSize(8);
+    router.setMaxStateBytes(200 * 1024); // room for 4096 states, not for 8192
+    RouteResult r = router.findRoute({ 116.36, 39.88 }, { 116.46, 39.95 });
+    CHECK(r.status == RouteStatus::TooLong);
+    CHECK(r.iterations > 1000);
+    CHECK(r.path.empty());
 }

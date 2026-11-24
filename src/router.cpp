@@ -379,9 +379,14 @@ RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
 
     int iterations = 0;
     bool outOfMemory = false;
+    bool cancelled = false;
     const int MAX_ITERATIONS = _maxIterations;
     while (!openSet.empty() && iterations < MAX_ITERATIONS && !outOfMemory) {
         iterations++;
+        if (_cancelCheck && (iterations & 1023) == 0 && _cancelCheck(_cancelContext)) {
+            cancelled = true;
+            break;
+        }
         OpenEntry cur = openSet.top();
         openSet.pop();
         const NodeKey curKey = states.at(cur.record).key;
@@ -452,6 +457,10 @@ RouteResult Router::findRoute(const RoutePoint& from, const RoutePoint& to)
     }
 
     result.iterations = iterations;
+    if (cancelled) {
+        result.status = RouteStatus::Cancelled;
+        return result;
+    }
     if (!result.found) {
         result.status = (openSet.empty() && !outOfMemory) ? RouteStatus::NotConnected : RouteStatus::TooLong;
         return result;

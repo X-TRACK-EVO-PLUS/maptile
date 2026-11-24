@@ -23,7 +23,8 @@ enum class RouteStatus {
     NoNodeNearStart, // the nearest road node is further than the snap limit
     NoNodeNearEnd,
     NotConnected, // the search ran out of roads
-    TooLong, // the search hit its iteration limit
+    TooLong, // the search hit its iteration limit or its memory budget
+    Cancelled, // the cancel check said stop
 };
 
 struct RouteResult {
@@ -65,6 +66,13 @@ public:
     /// Upper bound on the memory of the A* state table; 0 means no limit.
     /// A search that needs more ends as TooLong.
     void setMaxStateBytes(size_t bytes) { _maxStateBytes = bytes; }
+    /// Asked every 1024 expansions; the search ends as Cancelled when it returns true.
+    /// It runs on the searching thread, so it must be cheap (an atomic load).
+    void setCancelCheck(bool (*check)(void*), void* context)
+    {
+        _cancelCheck = check;
+        _cancelContext = context;
+    }
     /// Find a route between two points
     RouteResult findRoute(const RoutePoint& from, const RoutePoint& to);
 
@@ -74,6 +82,8 @@ private:
     int _maxIterations = 100000;
     double _heuristicWeight = 0.8;
     size_t _maxStateBytes = 0;
+    bool (*_cancelCheck)(void*) = nullptr;
+    void* _cancelContext = nullptr;
 };
 
 } // namespace MapTile

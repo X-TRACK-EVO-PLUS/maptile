@@ -220,14 +220,15 @@ private:
 ┌─ Block Cache (LRU) ─────────────────┐
 │ 桌面/模拟器: 8 块, 每块 ~500KB      │
 │ 嵌入式:      2-4 块, 每块 ~500KB    │
-├─ A* 运行时 (按需分配，搜索完释放) ──┤
-│ Open Set (二叉堆)                    │
-│   最大 ~4000 节点 × 16B = 64KB      │
-│ Node State (per-block 数组)          │
-│   g_score + parent + flags           │
-│   每块 ~80KB，活跃 4 块 = 320KB     │
+├─ A* 运行时 (mmap，搜索完释放) ──────┤
+│ Open Set: std::priority_queue        │
+│   实测 900~2300 项                   │
+│ 状态表: 每个到过的节点 28 字节       │
+│   (20 字节记录 + 2 倍槽位的索引)     │
+│   约 0.88 个状态 / 次迭代            │
+│   26 万个状态约 7.3 MB，上限可配置  │
 ├─────────────────────────────────────┤
-│ A* 运行时总计: ~400KB RAM           │
+│ 长路线的内存主要是状态表，不是 400KB │
 └─────────────────────────────────────┘
 ```
 
@@ -285,7 +286,9 @@ float heuristic(double lon1, double lat1, double lon2, double lat2) {
     double dlat = (lat2 - lat1) * 111320.0;
     double dlon = (lon2 - lon1) * 111320.0 * cos(lat1 * M_PI / 180.0);
     return (float)(sqrt(dlat * dlat + dlon * dlon) * 0.8);
-    // 0.8 系数保证 admissible（实际路径不会比直线短）
+    // 系数 H 由 Router::setHeuristicWeight 设置（默认 0.8，App 用 1.15）。
+    // 0.8 并不 admissible：骑行道的最小代价系数是 0.56（0.8 × 0.7），所以 A* 本来就不保证最短。
+    // H 越大展开越少，路线可能略长，选值的数据见 router-refactor.md
 }
 ```
 

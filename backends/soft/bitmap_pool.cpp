@@ -89,7 +89,7 @@ void BitmapPool::run(const Job& job, const std::shared_ptr<const Style>& style, 
 void BitmapPool::want(const std::vector<Job>& jobs)
 {
     std::shared_ptr<const Style> style;
-    uint32_t generation;
+    uint32_t generation = 0;
     std::vector<Job> now;
     {
         std::lock_guard<std::mutex> lock(_mutex);

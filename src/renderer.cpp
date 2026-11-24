@@ -11,8 +11,6 @@ namespace MapTile {
 
 namespace {
 
-    uint64_t tileKey(int z, int x, int y) { return (uint64_t(z) << 52) | (uint64_t(x) << 26) | uint64_t(y); }
-
     /* A style filter bound to one tile layer: each value of the layer is
      * tested once, so matching a feature is a few array lookups. */
     struct FilterMatcher {

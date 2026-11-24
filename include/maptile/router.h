@@ -58,6 +58,13 @@ public:
     /// Upper bound on the A* expansions (the default suits a city)
     void setMaxIterations(int n) { _maxIterations = n; }
 
+    /// Weight of the straight-line distance in the A* estimate. Below 1 the
+    /// estimate never overshoots (but the search widens); above 1 it is
+    /// faster and the route may be a little longer than the best one.
+    void setHeuristicWeight(double w) { _heuristicWeight = w; }
+    /// Upper bound on the memory of the A* state table; 0 means no limit.
+    /// A search that needs more ends as TooLong.
+    void setMaxStateBytes(size_t bytes) { _maxStateBytes = bytes; }
     /// Find a route between two points
     RouteResult findRoute(const RoutePoint& from, const RoutePoint& to);
 
@@ -65,6 +72,8 @@ private:
     RoutingGraph* _graph;
     double _snapLimitM = 0;
     int _maxIterations = 100000;
+    double _heuristicWeight = 0.8;
+    size_t _maxStateBytes = 0;
 };
 
 } // namespace MapTile

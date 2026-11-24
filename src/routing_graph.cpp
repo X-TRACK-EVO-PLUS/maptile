@@ -88,19 +88,31 @@ TileBlock* RoutingGraph::loadTile(int tileX, int tileY)
     // Read nodes
     block->nodes.resize(hdr.nodeCount);
     if (hdr.nodeCount > 0) {
-        fread(block->nodes.data(), sizeof(RngNode), hdr.nodeCount, f);
+        if (fread(block->nodes.data(), sizeof(RngNode), hdr.nodeCount, f) != hdr.nodeCount) {
+            fclose(f);
+            delete block; // a truncated file
+            return nullptr;
+        }
     }
 
     // Read edges
     block->edges.resize(hdr.edgeCount);
     if (hdr.edgeCount > 0) {
-        fread(block->edges.data(), sizeof(RngEdge), hdr.edgeCount, f);
+        if (fread(block->edges.data(), sizeof(RngEdge), hdr.edgeCount, f) != hdr.edgeCount) {
+            fclose(f);
+            delete block; // a truncated file
+            return nullptr;
+        }
     }
 
     // Read border nodes
     block->borders.resize(hdr.borderCount);
     if (hdr.borderCount > 0) {
-        fread(block->borders.data(), sizeof(RngBorderNode), hdr.borderCount, f);
+        if (fread(block->borders.data(), sizeof(RngBorderNode), hdr.borderCount, f) != hdr.borderCount) {
+            fclose(f);
+            delete block; // a truncated file
+            return nullptr;
+        }
     }
 
     fclose(f);

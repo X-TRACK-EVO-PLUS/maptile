@@ -6,6 +6,7 @@ add_executable(
   test_layered_source.cpp
   test_mvt.cpp
   test_renderer.cpp
+  router_reference.cpp
   test_router.cpp
   test_routing_graph.cpp
   test_soft_canvas.cpp

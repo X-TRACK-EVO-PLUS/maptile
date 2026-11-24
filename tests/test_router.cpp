@@ -149,3 +149,100 @@ TEST_CASE("Router::findRoute with no data reports NoData")
     RouteResult r = router.findRoute({ 116.4, 39.9 }, { 116.5, 39.8 });
     CHECK(r.status == RouteStatus::NoData);
 }
+
+// --- The flat state table against the search it replaced ---
+
+#include "router_reference.h"
+#include <cstdio>
+#include <cstdlib>
+#include <random>
+
+namespace {
+struct Pair {
+    RoutePoint from, to;
+};
+
+void checkSame(const RouteResult& a, const RouteResult& b)
+{
+    CHECK(a.status == b.status);
+    CHECK(a.found == b.found);
+    CHECK(a.iterations == b.iterations);
+    CHECK(a.distance_m == b.distance_m);
+    REQUIRE(a.path.size() == b.path.size());
+    for (size_t i = 0; i < a.path.size(); i++) {
+        CHECK(a.path[i].lon == b.path[i].lon);
+        CHECK(a.path[i].lat == b.path[i].lat);
+    }
+}
+} // namespace
+
+TEST_CASE("Router agrees with the reference search on the test tiles")
+{
+    const Pair pairs[] = {
+        { { 116.38, 39.92 }, { 116.42, 39.91 } },
+        { { 116.35, 39.85 }, { 116.42, 39.92 } },
+        { { 116.30, 39.80 }, { 116.45, 40.00 } },
+        { { 116.42, 39.92 }, { 116.35, 39.85 } },
+        { { 116.4, 39.9 }, { 116.4, 39.9 } },
+        { { 116.4, 39.9 }, { 120.0, 30.0 } },
+    };
+    Router router;
+    router.setDataPath(ROUTING_PATH);
+    router.setCacheSize(8);
+    RoutingGraph graph;
+    graph.setDataPath(ROUTING_PATH);
+    graph.setCacheSize(8);
+    for (const Pair& p : pairs) {
+        for (int maxIter : { 100000, 300 }) {
+            router.setMaxIterations(maxIter);
+            checkSame(router.findRoute(p.from, p.to), findRouteReference(&graph, p.from, p.to, maxIter, 0));
+        }
+    }
+}
+
+// MAPTILE_TEST_ROUTING=<dir with 10/x/y.rng> adds a larger set: random pairs
+// inside the area covered by the data, reference against new, same results.
+TEST_CASE("Router agrees with the reference search on a real region")
+{
+    const char* dir = getenv("MAPTILE_TEST_ROUTING");
+    if (!dir)
+        return;
+    std::string fmt = std::string(dir) + "/%d/%d/%d.rng";
+    Router router;
+    router.setDataPath(fmt.c_str());
+    router.setCacheSize(64);
+    router.setMaxIterations(60000);
+    RoutingGraph graph;
+    graph.setDataPath(fmt.c_str());
+    graph.setCacheSize(64);
+
+    const char* boxEnv = getenv("MAPTILE_TEST_BOX"); // "lon0 lat0 lon1 lat1"
+    double box[4] = { 116.2, 39.8, 116.5, 40.0 };
+    if (boxEnv)
+        sscanf(boxEnv, "%lf %lf %lf %lf", &box[0], &box[1], &box[2], &box[3]);
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<double> lon(box[0], box[2]), lat(box[1], box[3]);
+    int found = 0;
+    for (int i = 0; i < 40; i++) {
+        RoutePoint a = { lon(rng), lat(rng) }, b = { lon(rng), lat(rng) };
+        RouteResult n = router.findRoute(a, b);
+        RouteResult r = findRouteReference(&graph, a, b, 60000, 0);
+        checkSame(n, r);
+        found += r.found;
+    }
+    MESSAGE("routes found: " << found << " of 40");
+}
+
+TEST_CASE("Router stops with TooLong when the state table would pass its budget")
+{
+    Router router;
+    router.setDataPath(ROUTING_PATH);
+    router.setCacheSize(8);
+    router.setMaxStateBytes(64 * 1024); // below the first table
+    RouteResult r = router.findRoute({ 116.30, 39.80 }, { 116.45, 40.00 });
+    CHECK(r.found == false);
+    CHECK(r.status == RouteStatus::TooLong);
+    router.setMaxStateBytes(0);
+    r = router.findRoute({ 116.30, 39.80 }, { 116.45, 40.00 });
+    CHECK(r.status != RouteStatus::TooLong);
+}
